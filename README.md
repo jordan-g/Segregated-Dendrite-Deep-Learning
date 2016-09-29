@@ -1,0 +1,1 @@
+Code from "Biologically feasible deep learning with segregated dendrites" by Jordan Guergiuev, Timothy P. Lillicrap, Blake A. Richards.

@@ -1,0 +1,65 @@
+import numpy as np
+import struct
+
+# Constants
+IMAGEOFFSET = 16
+LABELOFFSET = 8
+NROWS       = 28
+NCOLS       = 28
+TRAINIMAGES = "MNIST/train-images.idx3-ubyte"
+TRAINLABELS = "MNIST/train-labels.idx1-ubyte"
+TESTIMAGES  = "MNIST/t10k-images.idx3-ubyte"
+TESTLABELS  = "MNIST/t10k-labels.idx1-ubyte"
+
+def imageheader(filename):
+    with open(filename, 'r') as io:
+        magic_number = struct.unpack('>i', io.read(4))[0]
+        total_items  = struct.unpack('>i', io.read(4))[0]
+        nrows = struct.unpack('>i', io.read(4))[0]
+        ncols = struct.unpack('>i', io.read(4))[0]
+    return magic_number, int(total_items), int(nrows), int(ncols)
+
+def labelheader(filename):
+    with open(filename, 'r') as io:
+        magic_number = struct.unpack('>i', io.read(4))[0]
+        total_items  = struct.unpack('>i', io.read(4))[0]
+    return magic_number, int(total_items)
+
+def getimage(filename, index):
+    with open(filename, 'r') as io:
+        io.seek(IMAGEOFFSET + NROWS * NCOLS * index)
+        image = np.empty((NROWS, NCOLS))
+        for i in np.nditer(image, op_flags=['readwrite']):
+            i[...] = struct.unpack('B', io.read(1))[0]
+    return image
+
+def getlabel(filename, index):
+    with open(filename, 'r') as io:
+        io.seek(LABELOFFSET + index)
+        label = struct.unpack('B', io.read(1))[0]
+    return label
+
+def trainimage(index): return getimage(TRAINIMAGES, index)
+def trainlabel(index): return getlabel(TRAINLABELS, index)
+def testimage(index): return getimage(TESTIMAGES, index)
+def testlabel(index): return getlabel(TESTLABELS, index)
+def trainfeatures(index): return trainimage(index).flatten(order='F')
+def testfeatures(index): return testimage(index).flatten(order='F')
+
+def traindata():
+    _, nimages, nrows, ncols = imageheader(TRAINIMAGES)
+    features = np.empty((nrows * ncols, nimages))
+    labels   = np.empty(nimages)
+    for index in range(nimages):
+        features[:, index] = trainfeatures(index)
+        labels[index] = trainlabel(index)
+    return features, labels
+
+def testdata():
+    _, nimages, nrows, ncols = imageheader(TESTIMAGES)
+    features = np.empty((nrows * ncols, nimages))
+    labels   = np.empty(nimages)
+    for index in range(nimages):
+        features[:, index] = testfeatures(index)
+        labels[index] = testlabel(index)
+    return features, labels
