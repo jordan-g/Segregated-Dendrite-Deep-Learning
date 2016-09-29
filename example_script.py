@@ -4,6 +4,12 @@ Example script creating a network & training it on MNIST.
 
 import deep_learning as dl
 
+# load MNIST -- assuming the original MNIST binary files are in the current folder
+try:
+	x_train, x_test, t_train, t_test = dl.load_MNIST()
+except:
+	exit()
+
 # silence 80% of feedback weights
 dl.use_sparse_feedback = True
 

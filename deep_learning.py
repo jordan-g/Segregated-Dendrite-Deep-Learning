@@ -740,7 +740,7 @@ class Network:
             self.Y[m] = np.load(os.path.join(path, prefix + "b_weights_{}.npy".format(m)))
 
 # ---------------------------------------------------------------
-"""                     Layer class                           """
+"""                     Layer classes                         """
 # ---------------------------------------------------------------
 
 class Layer:
@@ -990,22 +990,37 @@ class finalLayer(Layer):
 
 # --- MNIST --- #
 
-def save_MNIST(x_train, x_test, t_train, t_test):
+def save_MNIST(x_train, x_test, t_train, t_test, x_tune=None, t_tune=None):
     np.save("x_train", x_train)
     np.save("x_test", x_test)
     np.save("t_train", t_train)
     np.save("t_test", t_test)
 
-def load_MNIST():
+def load_MNIST(n_tune=0):
     try:
         x_train = np.load("x_train.npy")
         x_test  = np.load("x_test.npy")
         t_train = np.load("t_train.npy")
         t_test  = np.load("t_test.npy")
+        if n_tune != 0:
+            x_tune = np.load("x_tune.npy")
+            t_tune = np.load("t_tune.npy")
     except:
-        x_train, x_test, t_train, t_test = get_MNIST()
+        print("Error: Could not find MNIST .npy files in the current directory.\nLooking for original binary files...")
+        try:
+            if n_tune != 0:
+                x_train, x_test, x_tune, t_train, t_test, t_tune = get_MNIST(n_tune)
+                save_MNIST(x_train, x_test, t_train, t_test, x_tune, t_tune)
+            else:
+                x_train, x_test, t_train, t_test = get_MNIST()
+                save_MNIST(x_train, x_test, t_train, t_test)
+        except:
+            return
 
-    return x_train, x_test, t_train, t_test
+    if n_tune != 0:
+        return x_train, x_test, x_tune, t_train, t_test, t_tune
+    else:
+        return x_train, x_test, t_train, t_test
 
 def get_MNIST(n_tune=0):
     '''
@@ -1030,7 +1045,8 @@ def get_MNIST(n_tune=0):
         trainfeatures, trainlabels = MNIST.traindata()
         testfeatures, testlabels   = MNIST.testdata()
     except:
-        print("Error: MNIST dataset files could not be found in the current directory.")
+        print("Error: Could not find original MNIST files in the current directory.")
+        return
  
     # normalize inputs
     if n_tune > 0:
@@ -1045,16 +1061,16 @@ def get_MNIST(n_tune=0):
     if n_tune > 0:
         t_tune = np.zeros((10, n_tune))
         for i in range(n_tune):
-            t_tune[trainlabels[i], i] = 1
+            t_tune[int(trainlabels[i]), i] = 1
  
     t_train = np.zeros((10, n_train))
-    for i in range(n_train):
-        t_train[trainlabels[n_tune + i], i] = 1
+    for i in xrange(n_train):
+        t_train[int(trainlabels[n_tune + i]), i] = 1
  
     n_test = testlabels.size
     t_test = np.zeros((10, n_test))
-    for i in range(n_test):
-        t_test[testlabels[i], i] = 1
+    for i in xrange(n_test):
+        t_test[int(testlabels[i]), i] = 1
  
     if n_tune > 0:
         return x_train, x_test, x_tune, t_train, t_test, t_tune

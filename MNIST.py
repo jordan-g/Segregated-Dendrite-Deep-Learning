@@ -1,15 +1,19 @@
 import numpy as np
 import struct
+import sys
+
+if sys.version_info >= (3,):
+    xrange = range
 
 # Constants
 IMAGEOFFSET = 16
 LABELOFFSET = 8
 NROWS       = 28
 NCOLS       = 28
-TRAINIMAGES = "MNIST/train-images.idx3-ubyte"
-TRAINLABELS = "MNIST/train-labels.idx1-ubyte"
-TESTIMAGES  = "MNIST/t10k-images.idx3-ubyte"
-TESTLABELS  = "MNIST/t10k-labels.idx1-ubyte"
+TRAINIMAGES = "train-images.idx3-ubyte"
+TRAINLABELS = "train-labels.idx1-ubyte"
+TESTIMAGES  = "t10k-images.idx3-ubyte"
+TESTLABELS  = "t10k-labels.idx1-ubyte"
 
 def imageheader(filename):
     with open(filename, 'r') as io:
@@ -50,7 +54,7 @@ def traindata():
     _, nimages, nrows, ncols = imageheader(TRAINIMAGES)
     features = np.empty((nrows * ncols, nimages))
     labels   = np.empty(nimages)
-    for index in range(nimages):
+    for index in xrange(nimages):
         features[:, index] = trainfeatures(index)
         labels[index] = trainlabel(index)
     return features, labels
@@ -59,7 +63,7 @@ def testdata():
     _, nimages, nrows, ncols = imageheader(TESTIMAGES)
     features = np.empty((nrows * ncols, nimages))
     labels   = np.empty(nimages)
-    for index in range(nimages):
+    for index in xrange(nimages):
         features[:, index] = testfeatures(index)
         labels[index] = testlabel(index)
     return features, labels
