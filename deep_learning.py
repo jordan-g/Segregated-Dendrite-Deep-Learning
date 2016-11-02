@@ -1,6 +1,6 @@
 '''
 Code for simulations presented in
-"Biologically feasible deep learning with segregated dendrites"
+"Deep learning with segregated dendrites"
 by Jordan Guergiuev, Timothy P. Lillicrap, Blake A. Richards.
 
      Author: Jordan Guergiuev
