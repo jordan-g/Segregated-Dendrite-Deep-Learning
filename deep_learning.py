@@ -107,6 +107,9 @@ def deriv_phi(x):
 def alpha(x):
     return 1.0/(1.0 + np.exp(-x))
 
+def deriv_alpha(x):
+    return np.exp(x)/(1.0 + np.exp(x))**2
+
 # --- kernel function --- #
 
 def kappa(x):
@@ -386,8 +389,8 @@ class Network:
             self.l[m].average_PSP_B_t *= 0
 
             if m == self.M-1:
-                self.l[m].average_phi_C_f       *= 0
-                self.l[m].average_phi_C_t       *= 0
+                self.l[m].average_phi_C_f *= 0
+                self.l[m].average_phi_C_t *= 0
             else:
                 self.l[m].average_A_f *= 0
                 self.l[m].average_A_t *= 0
@@ -513,8 +516,9 @@ class Network:
         self.f_etas = f_etas
         self.b_etas = b_etas
 
-        # save initial weights
-        self.save_weights(self.exp_path, prefix='initial_')
+        if save_experiment:
+            # save initial weights
+            self.save_weights(self.exp_path, prefix='initial_')
 
         # initialize full test error recording array
         self.full_test_errs  = np.zeros(n_epochs + 1)
@@ -802,11 +806,14 @@ class hiddenLayer(Layer):
     def update_W(self):
         if not use_backprop:
             self.E = k_B*(alpha(self.average_A_t) - alpha(self.average_A_f))*-deriv_phi(self.average_C_f)
+
+            if record_backprop_angle:
+                self.E_bp = np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*deriv_phi(self.average_C_f)
         else:
-            self.E = np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*deriv_phi(self.average_C_f)
+            self.E    = np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*deriv_phi(self.average_C_f)
+            self.E_bp = self.E
 
         if record_backprop_angle:
-            self.E_bp = np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*deriv_phi(self.average_C_f)
             self.delta_b_bp = np.sum(self.E_bp)
 
         self.delta_W = np.dot(self.E, self.average_PSP_B_f.T)
@@ -921,6 +928,9 @@ class finalLayer(Layer):
 
     def update_W(self):
         self.E = k_D*(self.average_phi_C_t - phi(self.average_C_f))*-deriv_phi(self.average_C_f)
+
+        if use_backprop or record_backprop_angle:
+            self.E_bp = self.E
 
         self.delta_W = np.dot(self.E, self.average_PSP_B_f.T)
         self.net.W[self.m] += -self.net.f_etas[self.m]*P_final*self.delta_W
