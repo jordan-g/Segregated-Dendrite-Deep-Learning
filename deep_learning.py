@@ -43,16 +43,17 @@ update_backward_weights = False # update backward weights
 use_backprop            = False # use error backpropagation
 record_backprop_angle   = False # record angle b/w hidden layer error signals and backprop-generated error signals
 use_apical_conductance  = False # use attenuated conductance from apical dendrite to soma
+use_spiking_feedback    = True  # use spiking feedback
 
 default_exp_folder = 'Experiments/' # folder in which to save experiments (edit accordingly)
 weight_cmap        = 'bone'         # color map to use for weight plotting
 
 dt  = 1.0         # time step (ms)
-mem = int(10/dt)  # spike memory (time steps) - used to limit PSP integration of past spikes (for performance)
+mem = int(20/dt)  # spike memory (time steps) - used to limit PSP integration of past spikes (for performance)
 
 l_f_phase      = int(50/dt)  # length of forward phase (time steps)
 l_t_phase      = int(50/dt)  # length of target phase (time steps)
-l_f_phase_test = int(500/dt) # length of forward phase for tests (time steps)
+l_f_phase_test = int(200/dt) # length of forward phase for tests (time steps)
 settle_dur     = int(30/dt)  # duration to wait before starting to accumulate averages (time steps)
 
 if use_rand_phase_lengths:
@@ -131,6 +132,8 @@ class Network:
 
         self.n = n           # layer sizes - eg. (500, 100, 10)
         self.M = len(self.n) # number of layers
+
+        self.n_neurons_per_category = int(self.n[-1]/10)
 
         # load MNIST
         self.x_train, self.x_test, self.t_train, self.t_test = load_MNIST()
@@ -248,17 +251,29 @@ class Network:
             if use_broadcast:
                 for m in xrange(self.M):
                     if m == 0:
-                        self.l[m].out_f(self.x_hist, self.l[-1].S_hist, calc_averages=calc_averages)
+                        if use_spiking_feedback:
+                            self.l[m].out_f(self.x_hist, self.l[-1].S_hist, calc_averages=calc_averages)
+                        else:
+                            self.l[m].out_f(self.x_hist, self.l[-1].phi_C, calc_averages=calc_averages)
                     elif m < self.M-1:
-                        self.l[m].out_f(self.l[m-1].S_hist, self.l[-1].S_hist, calc_averages=calc_averages)
+                        if use_spiking_feedback:
+                            self.l[m].out_f(self.l[m-1].S_hist, self.l[-1].S_hist, calc_averages=calc_averages)
+                        else:
+                            self.l[m].out_f(self.l[m-1].S_hist, self.l[-1].phi_C, calc_averages=calc_averages)
                     else:
                         self.l[m].out_f(self.l[m-1].S_hist, None, calc_averages=calc_averages)
             else:
                 for m in xrange(self.M):
                     if m == 0:
-                        self.l[m].out_f(self.x_hist, self.l[m+1].S_hist, calc_averages=calc_averages)
+                        if use_spiking_feedback:
+                            self.l[m].out_f(self.x_hist, self.l[m+1].S_hist, calc_averages=calc_averages)
+                        else:
+                            self.l[m].out_f(self.x_hist, self.l[m+1].phi_C, calc_averages=calc_averages)
                     elif m < self.M-1:
-                        self.l[m].out_f(self.l[m-1].S_hist, self.l[m+1].S_hist, calc_averages=calc_averages)
+                        if use_spiking_feedback:
+                            self.l[m].out_f(self.l[m-1].S_hist, self.l[m+1].S_hist, calc_averages=calc_averages)
+                        else:
+                            self.l[m].out_f(self.l[m-1].S_hist, self.l[m+1].phi_C, calc_averages=calc_averages)
                     else:
                         self.l[m].out_f(self.l[m-1].S_hist, None, calc_averages=calc_averages)
 
@@ -270,17 +285,29 @@ class Network:
             if use_broadcast:
                 for m in xrange(self.M-1, -1, -1):
                     if m == 0:
-                        self.l[m].out_t(self.x_hist, self.l[-1].S_hist, calc_averages=calc_averages)
+                        if use_spiking_feedback:
+                            self.l[m].out_t(self.x_hist, self.l[-1].S_hist, calc_averages=calc_averages)
+                        else:
+                            self.l[m].out_t(self.x_hist, self.l[-1].phi_C, calc_averages=calc_averages)
                     elif m < self.M-1:
-                        self.l[m].out_t(self.l[m-1].S_hist, self.l[-1].S_hist, calc_averages=calc_averages)
+                        if use_spiking_feedback:
+                            self.l[m].out_t(self.l[m-1].S_hist, self.l[-1].S_hist, calc_averages=calc_averages)
+                        else:
+                            self.l[m].out_t(self.l[m-1].S_hist, self.l[-1].phi_C, calc_averages=calc_averages)
                     else:
                         self.l[m].out_t(self.l[m-1].S_hist, self.t, calc_averages=calc_averages)
             else:
                 for m in xrange(self.M-1, -1, -1):
                     if m == 0:
-                        self.l[m].out_t(self.x_hist, self.l[m+1].S_hist, calc_averages=calc_averages)
+                        if use_spiking_feedback:
+                            self.l[m].out_t(self.x_hist, self.l[m+1].S_hist, calc_averages=calc_averages)
+                        else:
+                            self.l[m].out_t(self.x_hist, self.l[m+1].phi_C, calc_averages=calc_averages)
                     elif m < self.M-1:
-                        self.l[m].out_t(self.l[m-1].S_hist, self.l[m+1].S_hist, calc_averages=calc_averages)
+                        if use_spiking_feedback:
+                            self.l[m].out_t(self.l[m-1].S_hist, self.l[m+1].S_hist, calc_averages=calc_averages)
+                        else:
+                            self.l[m].out_t(self.l[m-1].S_hist, self.l[m+1].phi_C, calc_averages=calc_averages)
                     else:
                         self.l[m].out_t(self.l[m-1].S_hist, self.t, calc_averages=calc_averages)
 
@@ -341,7 +368,7 @@ class Network:
             self.C_hists = [ np.zeros((l_t_phase, self.l[m].size)) for m in xrange(self.M)]
 
         # update target
-        self.t = t[:, np.newaxis]
+        self.t = t
 
         for time in xrange(l_t_phase):
             # update input history
@@ -582,7 +609,7 @@ class Network:
 
                 # get training example data
                 x = self.x_train[:, n]
-                t = self.t_train[:, n]
+                t = self.t_train[:, n][:, np.newaxis]
 
                 if record_voltages:
                     # initialize voltage arrays
@@ -591,8 +618,8 @@ class Network:
                     self.C_hists     = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M)]
 
                 # do forward & target phases
-                self.f_phase(x, t, training=True, record_voltages=record_voltages)
-                self.t_phase(x, t, training=True, record_voltages=record_voltages, upd_b_weights=update_backward_weights)
+                self.f_phase(x, None, training=True, record_voltages=record_voltages)
+                self.t_phase(x, t.repeat(self.n_neurons_per_category, axis=0), training=True, record_voltages=record_voltages, upd_b_weights=update_backward_weights)
 
                 if record_backprop_angle:
                     # get backprop angle
@@ -693,8 +720,8 @@ class Network:
             t = self.t_test[:, n]
 
             # do a forward phase & get the unit with maximum average somatic potential
-            self.f_phase(x, t, training=False)
-            sel_num = np.argmax(self.l[-1].average_C_f)
+            self.f_phase(x, t.repeat(self.n_neurons_per_category, axis=0), training=False)
+            sel_num = np.argmax(np.mean(self.l[-1].average_C_f.reshape(-1, self.n_neurons_per_category), axis=-1))
 
             # get the target number from testing example data
             target_num = np.dot(np.arange(10), t)
@@ -829,7 +856,10 @@ class hiddenLayer(Layer):
         self.net.Y[self.m] += -self.net.b_etas[self.m]*self.delta_Y
 
     def update_A(self, input):
-        self.PSP_A = np.dot(input, kappas)
+        if use_sparse_feedback:
+            self.PSP_A = np.dot(input, kappas)
+        else:
+            self.PSP_A = input
         self.A = np.dot(self.net.Y[self.m], self.PSP_A)
 
     def update_B(self, input):
