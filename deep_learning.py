@@ -34,6 +34,7 @@ n_quick_test = 100   # number of examples to use for quick tests (every 1000 exa
 use_rand_phase_lengths  = True  # use random phase lengths (chosen from Wald distribution)
 use_conductances        = True  # use conductances between dendrites and soma
 use_broadcast           = True  # use broadcast (ie. feedback to all layers comes from output layer)
+use_spiking_feedback    = True  # use spiking feedback
 
 use_symmetric_weights   = False # enforce symmetric weights
 noisy_symmetric_weights = False # add noise to symmetric weights
@@ -43,7 +44,7 @@ update_backward_weights = False # update backward weights
 use_backprop            = False # use error backpropagation
 record_backprop_angle   = False # record angle b/w hidden layer error signals and backprop-generated error signals
 use_apical_conductance  = False # use attenuated conductance from apical dendrite to soma
-use_spiking_feedback    = True  # use spiking feedback
+calculate_eigvals       = False
 
 default_exp_folder = 'Experiments/' # folder in which to save experiments (edit accordingly)
 weight_cmap        = 'bone'         # color map to use for weight plotting
@@ -346,6 +347,7 @@ class Network:
                 self.l[m].average_phi_C_f       /= l_f_phase - settle_dur
             else:
                 self.l[m].average_A_f /= l_f_phase - settle_dur
+                self.l[m].average_phi_C_f /= l_f_phase - settle_dur
                 if update_backward_weights:
                     self.l[m].average_PSP_A_f /= l_f_phase - settle_dur
 
@@ -389,6 +391,10 @@ class Network:
                     self.B_hists[m][time, :] = self.l[m].B[:, 0]
                     self.C_hists[m][time, :] = self.l[m].C[:, 0]
 
+        if calculate_eigvals:
+            self.J_beta  = np.multiply(deriv_phi(k_D*(np.dot(self.W[-1], self.l[-2].average_phi_C_f) + self.b[-1])), k_D*self.W[-1])
+            self.J_gamma = np.multiply(deriv_alpha(np.dot(self.Y[-2], phi(k_D*(np.dot(self.W[-1], self.l[-2].average_phi_C_f) + self.b[-1])))), self.Y[-2])
+
         # calculate averages
         for m in xrange(self.M-1, -1, -1):
             self.l[m].average_C_t     /= l_t_phase - settle_dur
@@ -421,6 +427,7 @@ class Network:
             else:
                 self.l[m].average_A_f *= 0
                 self.l[m].average_A_t *= 0
+                self.l[m].average_phi_C_f *= 0
                 if update_backward_weights:
                     self.l[m].average_PSP_A_f *= 0
                     self.l[m].average_PSP_A_t *= 0
@@ -553,6 +560,18 @@ class Network:
         # initialize quick test error recording array
         self.quick_test_errs = np.zeros(n_epochs*int(n_training_examples/1000.0) + 1)
 
+        if calculate_eigvals:
+            # initialize arrays for Jacobian testing
+            self.max_jacobian_eigvals = np.zeros(n_epochs*n_training_examples)
+            self.max_weight_eigvals   = np.zeros(n_epochs*n_training_examples + 1)
+
+            I = np.eye(self.n[-1])
+
+            # get max eigenvalues for weights
+            U = np.dot(self.W[-1], self.Y[-2])
+            p = np.dot((I - U).T, I - U)
+            self.max_weight_eigvals[0] = np.amax(np.real(np.linalg.eigvals(p)))
+
         if record_backprop_angle:
             # initialize backprop angles recording array
             if self.M > 1:
@@ -630,6 +649,17 @@ class Network:
                 self.f_phase(x, None, training=True, record_voltages=record_voltages)
                 self.t_phase(x, t.repeat(self.n_neurons_per_category, axis=0), training=True, record_voltages=record_voltages, upd_b_weights=update_backward_weights)
 
+                if calculate_eigvals:
+                    # get max eigenvalues for jacobians
+                    U = np.dot(self.J_beta, self.J_gamma)
+                    p = np.dot((I - U).T, I - U)
+                    self.max_jacobian_eigvals[k*n_training_examples + n] = np.amax(np.linalg.eigvals(p))
+
+                    # get max eigenvalues for weights
+                    U = np.dot(self.W[-1], self.Y[-2])
+                    p = np.dot((I - U).T, I - U)
+                    self.max_weight_eigvals[k*n_training_examples + n + 1] = np.amax(np.linalg.eigvals(p))
+
                 if record_backprop_angle:
                     # get backprop angle
                     if self.M > 1:
@@ -656,6 +686,11 @@ class Network:
                             if self.M > 1:
                                 # save backprop angles
                                 np.savetxt(os.path.join(self.exp_path, "bp_angles.csv"), self.bp_angles, delimiter=",")
+
+                        if calculate_eigvals:
+                            # save eigenvalues
+                            np.savetxt(os.path.join(self.exp_path, "max_jacobian_eigvals.csv"), self.max_jacobian_eigvals, delimiter=",")
+                            np.savetxt(os.path.join(self.exp_path, "max_weight_eigvals.csv"), self.max_weight_eigvals, delimiter=",")
                     
                     # get end time & reset start time
                     end_time = time.time()
@@ -819,6 +854,7 @@ class hiddenLayer(Layer):
         self.average_C_t     = np.zeros((self.size, 1))
         self.average_A_f     = np.zeros((self.size, 1))
         self.average_A_t     = np.zeros((self.size, 1))
+        self.average_phi_C_f = np.zeros((self.size, 1))
         self.average_PSP_B_f = np.zeros((self.f_input_size, 1))
         self.average_PSP_B_t = np.zeros((self.f_input_size, 1))
 
@@ -841,6 +877,7 @@ class hiddenLayer(Layer):
         self.average_C_t     *= 0
         self.average_A_f     *= 0
         self.average_A_t     *= 0
+        self.average_phi_C_f *= 0
         self.average_PSP_B_f *= 0
         self.average_PSP_B_t *= 0
 
@@ -850,7 +887,7 @@ class hiddenLayer(Layer):
 
     def update_W(self):
         if not use_backprop:
-            self.E = k_B*(alpha(self.average_A_t) - alpha(self.average_A_f))*-deriv_phi(self.average_C_f)
+            self.E = (alpha(self.average_A_t) - alpha(self.average_A_f))*-k_B*deriv_phi(self.average_C_f)
 
             if record_backprop_angle:
                 self.E_bp = np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*deriv_phi(self.average_C_f)
@@ -893,9 +930,9 @@ class hiddenLayer(Layer):
             self.C += self.C_dot*dt
         else:
             if phase == "forward":
-                self.C = self.B
+                self.C = k_B*self.B
             elif phase == "target":
-                self.C = self.B
+                self.C = k_B*self.B
 
         self.phi_C = phi(self.C)
 
@@ -912,6 +949,7 @@ class hiddenLayer(Layer):
         if calc_averages:
             self.average_C_f     += self.C
             self.average_A_f     += self.A
+            self.average_phi_C_f += self.phi_C
             self.average_PSP_B_f += self.PSP_B
 
             if update_backward_weights:
@@ -975,7 +1013,7 @@ class finalLayer(Layer):
         self.average_PSP_B_t *= 0
 
     def update_W(self):
-        self.E = k_D*(self.average_phi_C_t - phi(self.average_C_f))*-deriv_phi(self.average_C_f)
+        self.E = (self.average_phi_C_t - phi(self.average_C_f))*-k_D*deriv_phi(self.average_C_f)
 
         if use_backprop or record_backprop_angle:
             self.E_bp = self.E
@@ -1010,9 +1048,9 @@ class finalLayer(Layer):
             self.C += self.C_dot*dt
         else:
             if phase == "forward":
-                self.C = self.B
+                self.C = k_D*self.B
             elif phase == "target":
-                self.C = self.I
+                self.C = k_D*self.B + k_I*self.I
 
         self.phi_C = phi(self.C)
 

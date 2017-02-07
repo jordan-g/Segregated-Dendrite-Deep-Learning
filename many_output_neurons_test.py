@@ -10,7 +10,7 @@ try:
 except:
     exit()
 
-# -- No spiking feedback, 100 output units -- #
+# -- No spiking feedback, 3 hidden layers, 100 output units -- #
 
 dl.use_rand_phase_lengths  = True  # use random phase lengths (chosen from Wald distribution)
 dl.use_conductances        = True  # use conductances between dendrites and soma
@@ -25,12 +25,13 @@ dl.update_backward_weights = False # update backward weights
 dl.use_backprop            = False # use error backpropagation
 dl.record_backprop_angle   = False # record angle b/w hidden layer error signals and backprop-generated error signals
 dl.use_apical_conductance  = False # use attenuated conductance from apical dendrite to soma
+dl.calculate_eigvals       = False
 
 # create the network
-net = dl.Network(n=(500, 100, 100))
+net = dl.Network(n=(500, 200, 100, 100))
 
 # set training parameters
-f_etas = (0.12, 0.23, 0.23)
+f_etas = (0.12, 0.2, 0.23, 0.23)
 b_etas = None
 n_epochs = 60
 n_training_examples = 60000
@@ -54,6 +55,7 @@ dl.update_backward_weights = False # update backward weights
 dl.use_backprop            = False # use error backpropagation
 dl.record_backprop_angle   = False # record angle b/w hidden layer error signals and backprop-generated error signals
 dl.use_apical_conductance  = False # use attenuated conductance from apical dendrite to soma
+dl.calculate_eigvals       = True
 
 # create the network
 net = dl.Network(n=(500, 100, 100))
