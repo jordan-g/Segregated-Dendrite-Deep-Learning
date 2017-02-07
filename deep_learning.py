@@ -560,8 +560,17 @@ class Network:
 
         # do an initial weight test
         print("Start of epoch 0. ", end="")
+
+        # set start time
+        start_time = time.time()
+
         test_err = self.test_weights(n_test=n_full_test)
-        print("FE: {}%.\n".format(test_err))
+
+        # get end time & elapsed time
+        end_time = time.time()
+        time_elapsed = end_time - start_time
+
+        print("FE: {0}%. T: {1:.3f}s.\n".format(test_err, time_elapsed))
 
         self.full_test_errs[0] = test_err
 
@@ -646,7 +655,7 @@ class Network:
                         if record_backprop_angle:
                             if self.M > 1:
                                 # save backprop angles
-                                np.savetxt(self.exp_path + "bp_angles.csv", self.bp_angles, delimiter=",")
+                                np.savetxt(os.path.join(self.exp_path, "bp_angles.csv"), self.bp_angles, delimiter=",")
                     
                     # get end time & reset start time
                     end_time = time.time()
@@ -656,8 +665,17 @@ class Network:
 
             # do full weight test
             print("End of epoch {}. ".format(k), end="")
+            
+            # set start time
+            start_time = time.time()
+
             test_err = self.test_weights(n_test=n_full_test)
-            print("FE: {}%.\n".format(test_err))
+
+            # get end time & elapsed time
+            end_time = time.time()
+            time_elapsed = end_time - start_time
+
+            print("FE: {0}%. T: {1:.3f}s.\n".format(test_err, time_elapsed))
 
             self.full_test_errs[k+1] = test_err
             self.quick_test_errs[(k+1)*int(n_training_examples/1000)] = test_err

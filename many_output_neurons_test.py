@@ -23,7 +23,7 @@ dl.noisy_symmetric_weights = False # add noise to symmetric weights
 dl.use_sparse_feedback     = False # use sparse feedback weights
 dl.update_backward_weights = False # update backward weights
 dl.use_backprop            = False # use error backpropagation
-dl.record_backprop_angle   = True  # record angle b/w hidden layer error signals and backprop-generated error signals
+dl.record_backprop_angle   = False # record angle b/w hidden layer error signals and backprop-generated error signals
 dl.use_apical_conductance  = False # use attenuated conductance from apical dendrite to soma
 
 # create the network
@@ -52,7 +52,7 @@ dl.noisy_symmetric_weights = False # add noise to symmetric weights
 dl.use_sparse_feedback     = False # use sparse feedback weights
 dl.update_backward_weights = False # update backward weights
 dl.use_backprop            = False # use error backpropagation
-dl.record_backprop_angle   = True  # record angle b/w hidden layer error signals and backprop-generated error signals
+dl.record_backprop_angle   = False # record angle b/w hidden layer error signals and backprop-generated error signals
 dl.use_apical_conductance  = False # use attenuated conductance from apical dendrite to soma
 
 # create the network
