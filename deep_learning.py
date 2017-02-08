@@ -911,7 +911,7 @@ class hiddenLayer(Layer):
         self.net.Y[self.m] += -self.net.b_etas[self.m]*self.delta_Y
 
     def update_A(self, input):
-        if use_sparse_feedback:
+        if use_spiking_feedback:
             self.PSP_A = np.dot(input, kappas)
         else:
             self.PSP_A = input
