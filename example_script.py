@@ -17,7 +17,7 @@ dl.use_sparse_feedback = True
 net = dl.Network(n=(500, 10))
 
 # set training parameters
-f_etas = (0.21, 0.21)
+f_etas = (0.3, 0.01)
 b_etas = None
 n_epochs = 60
 n_training_examples = 60000
