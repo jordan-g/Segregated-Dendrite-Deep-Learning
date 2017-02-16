@@ -246,16 +246,6 @@ class Network:
         else:
             x = self.x
 
-        # if use_spiking_feedforward:
-        #     self.l[0].out_f(self.x_hist, self.l[-1].phi_C, calc_averages=False)
-        #     self.l[1].out_f(self.l[0].S_hist, None, calc_averages=calc_averages)
-        #     self.l[0].out_f(self.x_hist, self.l[-1].phi_C, calc_averages=calc_averages)
-        # else:
-        #     self.l[0].out_f(self.x_1, self.l[-1].phi_C, calc_averages=False)
-        #     self.l[1].out_f(self.l[0].phi_C, None, calc_averages=calc_averages)
-        #     self.l[0].out_f(self.x_1, self.l[-1].phi_C, calc_averages=calc_averages)
-
-
         if self.M == 1:
             self.l[0].out_f(x, None, calc_averages=calc_averages)
         else:
@@ -273,16 +263,7 @@ class Network:
                         self.l[-1].out_f(self.l[-2].S_hist, None, calc_averages=calc_averages)
                     else:
                         self.l[-1].out_f(self.l[-2].phi_C, None, calc_averages=calc_averages)
-
-                    # for m in xrange(self.M-2, 0, -1):
-                    #     if use_spiking_feedforward:
-                    #         self.l[m].out_f(self.l[m-1].S_hist, self.l[-1].S_hist, calc_averages=calc_averages)
-                    #     else:
-                    #         self.l[m].out_f(self.l[m-1].phi_C, self.l[-1].S_hist, calc_averages=calc_averages)                    
-
-                    # self.l[0].out_f(x, self.l[-1].S_hist, calc_averages=calc_averages)
                 else:
-                    #------------------------
                     self.l[0].out_f(x, self.l[-1].phi_C, calc_averages=calc_averages)
 
                     for m in xrange(1, self.M-1):
@@ -295,58 +276,33 @@ class Network:
                         self.l[-1].out_f(self.l[-2].S_hist, None, calc_averages=calc_averages)
                     else:
                         self.l[-1].out_f(self.l[-2].phi_C, None, calc_averages=calc_averages)
-                    
-                    # for m in xrange(self.M-2, 0, -1):
-                    #     print("hi")
-                    #     if use_spiking_feedforward:
-                    #         self.l[m].out_f(self.l[m-1].S_hist, self.l[-1].phi_C, calc_averages=calc_averages)
-                    #     else:
-                    #         self.l[m].out_f(self.l[m-1].phi_C, self.l[-1].phi_C, calc_averages=calc_averages)
-
-                    # self.l[0].out_f(x, self.l[-1].phi_C, calc_averages=calc_averages)
             else:
                 if use_spiking_feedback:
-                    self.l[0].out_f(x, self.l[1].S_hist, calc_averages=False)
+                    self.l[0].out_f(x, self.l[1].S_hist, calc_averages=calc_averages)
 
                     for m in xrange(1, self.M-1):
-                        if use_spiking_feedforward:
-                            self.l[m].out_f(self.l[m-1].S_hist, self.l[m+1].S_hist, calc_averages=False)
-                        else:
-                            self.l[m].out_f(self.l[m-1].phi_C, self.l[m+1].S_hist, calc_averages=False)
-
-                    if use_spiking_feedforward:
-                        self.l[-1].out_f(self.l[-2].S_hist, None, calc_averages=calc_averages)
-                    else:
-                        self.l[-1].out_f(self.l[-2].phi_C, None, calc_averages=calc_averages)
-
-                    for m in xrange(self.M-2, 0, -1):
                         if use_spiking_feedforward:
                             self.l[m].out_f(self.l[m-1].S_hist, self.l[m+1].S_hist, calc_averages=calc_averages)
                         else:
-                            self.l[m].out_f(self.l[m-1].phi_C, self.l[m+1].S_hist, calc_averages=calc_averages)                    
-
-                    self.l[0].out_f(x, self.l[1].S_hist, calc_averages=calc_averages)
-                else:
-                    self.l[0].out_f(x, self.l[1].phi_C, calc_averages=False)
-
-                    for m in xrange(1, self.M-1):
-                        if use_spiking_feedforward:
-                            self.l[m].out_f(self.l[m-1].S_hist, self.l[m+1].phi_C, calc_averages=False)
-                        else:
-                            self.l[m].out_f(self.l[m-1].phi_C, self.l[m+1].phi_C, calc_averages=False)
+                            self.l[m].out_f(self.l[m-1].phi_C, self.l[m+1].S_hist, calc_averages=calc_averages)
 
                     if use_spiking_feedforward:
                         self.l[-1].out_f(self.l[-2].S_hist, None, calc_averages=calc_averages)
                     else:
                         self.l[-1].out_f(self.l[-2].phi_C, None, calc_averages=calc_averages)
-                    
-                    for m in xrange(self.M-2, 0, -1):
+                else:
+                    self.l[0].out_f(x, self.l[1].phi_C, calc_averages=calc_averages)
+
+                    for m in xrange(1, self.M-1):
                         if use_spiking_feedforward:
                             self.l[m].out_f(self.l[m-1].S_hist, self.l[m+1].phi_C, calc_averages=calc_averages)
                         else:
                             self.l[m].out_f(self.l[m-1].phi_C, self.l[m+1].phi_C, calc_averages=calc_averages)
-                            
-                    self.l[0].out_f(x, self.l[1].phi_C, calc_averages=calc_averages)
+
+                    if use_spiking_feedforward:
+                        self.l[-1].out_f(self.l[-2].S_hist, None, calc_averages=calc_averages)
+                    else:
+                        self.l[-1].out_f(self.l[-2].phi_C, None, calc_averages=calc_averages)
 
     def out_t(self, training=False, calc_averages=True):
         # same as forward pass, but with a target introduced at the top layer
