@@ -748,7 +748,7 @@ class Network:
                         bp_angle = np.arccos(np.sum(self.l[0].delta_b_bp * self.l[0].delta_b) / (np.linalg.norm(self.l[0].delta_b_bp)*np.linalg.norm(self.l[0].delta_b.T)))*180.0/np.pi
                         self.bp_angles[k*n_training_examples + n] = bp_angle
 
-                if (n % 100) == 0 and (n != 0):
+                if ((n+1) % 100) == 0:
                     if calculate_eigvals and plot_eigvals:
                         max_inds = np.argsort(self.max_jacobian_eigvals[k*n_training_examples + n -100:k*n_training_examples + n])
                         max_ind = np.argmax(self.max_jacobian_eigvals[k*n_training_examples + n-100:k*n_training_examples + n])
@@ -772,7 +772,7 @@ class Network:
                         fig.canvas.draw()
                         fig.canvas.flush_events()
 
-                if (n % 1000 == 0) and (n != 0):
+                if ((n+1) % 1000 == 0):
                     # do quick weight test
                     print("\x1b[2K\rEpoch {0}, example {1}. ".format(k, n), end="")
                     test_err = self.test_weights(n_test=n_quick_test)
@@ -1000,13 +1000,13 @@ class hiddenLayer(Layer):
             self.E = (alpha(self.average_A_t) - alpha(self.average_A_f))*-k_B*deriv_phi(self.average_C_f)
 
             if record_backprop_angle:
-                self.E_bp = np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*deriv_phi(self.average_C_f)
+                self.E_bp = np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*deriv_phi(self.average_C_f)
         else:
-            self.E    = np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*deriv_phi(self.average_C_f)
+            self.E    = np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*deriv_phi(self.average_C_f)
             self.E_bp = self.E
 
         if record_backprop_angle:
-            self.delta_b_bp = np.sum(self.E_bp)
+            self.delta_b_bp = self.E_bp
 
         self.delta_W = np.dot(self.E, self.average_PSP_B_f.T)
         self.net.W[self.m] += -self.net.f_etas[self.m]*P_hidden*self.delta_W
