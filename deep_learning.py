@@ -45,10 +45,12 @@ noisy_symmetric_weights = False # add noise to symmetric weights
 use_sparse_feedback     = False # use sparse feedback weights
 update_backward_weights = False # update backward weights
 use_backprop            = False # use error backpropagation
-record_backprop_angle   = True  # record angle b/w hidden layer error signals and backprop-generated error signals
 use_apical_conductance  = False # use attenuated conductance from apical dendrite to soma
-calculate_eigvals       = True
-plot_eigvals            = False
+
+record_backprop_angle   = True  # record angle b/w hidden layer error signals and backprop-generated error signals
+record_eigvals          = True  # record maximum eigenvalues for Jacobians
+record_loss             = True  # record final layer loss during training
+plot_eigvals            = False # dynamically plot maximum eigenvalues for Jacobians
 
 default_exp_folder = 'Experiments/' # folder in which to save experiments (edit accordingly)
 weight_cmap        = 'bone'         # color map to use for weight plotting
@@ -448,10 +450,12 @@ class Network:
                     self.B_hists[m][time, :] = self.l[m].B[:, 0]
                     self.C_hists[m][time, :] = self.l[m].C[:, 0]
 
-        if calculate_eigvals:
+        if record_eigvals:
             self.J_beta  = np.multiply(deriv_phi(self.l[-1].average_C_f), k_D*self.W[-1])
             self.J_gamma = np.multiply(deriv_alpha(np.dot(self.Y[-2], self.l[-1].average_phi_C_f) + self.c[-2]), self.Y[-2])
-            self.err = ((self.l[-1].average_phi_C_t - phi(self.l[-1].average_C_f)) ** 2).mean()
+
+        if record_loss:
+            self.loss = ((self.l[-1].average_phi_C_t - phi(self.l[-1].average_C_f)) ** 2).mean()
             
         # calculate averages
         for m in xrange(self.M-1, -1, -1):
@@ -560,9 +564,10 @@ class Network:
                 'use_sparse_feedback'    : use_sparse_feedback,
                 'update_backward_weights': update_backward_weights,
                 'use_backprop'           : use_backprop,
-                'record_backprop_angle'  : record_backprop_angle,
                 'use_apical_conductance' : use_apical_conductance,
-                'calculate_eigvals'      : calculate_eigvals,
+                'record_backprop_angle'  : record_backprop_angle,
+                'record_loss'            : record_loss,
+                'record_eigvals'         : record_eigvals,
                 'plot_eigvals'           : plot_eigvals,
                 'dt'                     : dt,
                 'mem'                    : mem,
@@ -618,12 +623,15 @@ class Network:
         # initialize quick test error recording array
         self.quick_test_errs = np.zeros(n_epochs*int(n_training_examples/1000.0) + 1)
 
-        if calculate_eigvals:
+        if record_loss:
+            self.losses = np.zeros(n_epochs*n_training_examples)
+
+        if record_eigvals:
             # initialize arrays for Jacobian testing
-            self.max_jacobian_eigvals = np.zeros(n_epochs*n_training_examples)
-            self.max_weight_eigvals   = np.zeros(n_epochs*n_training_examples + 1)
-            self.errs                 = np.zeros(n_epochs*n_training_examples)
-            self.Us                   = np.zeros((n_epochs*n_training_examples, self.n[-1], self.n[-1]))
+            self.max_jacobian_eigvals   = np.zeros(n_epochs*n_training_examples)
+            self.max_weight_eigvals     = np.zeros(n_epochs*n_training_examples + 1)
+            self.jacobian_prod_matrices = np.zeros((n_epochs*n_training_examples, self.n[-1], self.n[-1]))
+            self.weight_prod_matrices   = np.zeros((n_epochs*n_training_examples + 1, self.n[-1], self.n[-1]))
 
             # create identity matrix
             I = np.eye(self.n[-1])
@@ -678,7 +686,7 @@ class Network:
         # start time used for timing how long each 1000 examples take
         start_time = None
 
-        if calculate_eigvals and plot_eigvals:
+        if record_eigvals and plot_eigvals:
             plt.close("all")
             fig = plt.figure(figsize=(13, 8))
             ax1 = fig.add_subplot(311)
@@ -718,26 +726,29 @@ class Network:
                 self.f_phase(self.x, None, training=True, record_voltages=record_voltages)
                 self.t_phase(self.x, self.t.repeat(self.n_neurons_per_category, axis=0), training=True, record_voltages=record_voltages, upd_b_weights=update_backward_weights)
 
-                if calculate_eigvals:
+                if record_loss:
+                    self.losses[k*n_training_examples + n] = self.loss
+
+                if record_eigvals:
                     # get max eigenvalues for jacobians
                     U = np.dot(self.J_beta, self.J_gamma)
-                    self.Us[k*n_training_examples + n] = U
+                    self.jacobian_prod_matrices[k*n_training_examples + n] = U
                     p = np.dot((I - U).T, I - U)
                     self.max_jacobian_eigvals[k*n_training_examples + n] = np.amax(np.linalg.eigvals(p))
 
                     # get max eigenvalues for weights
-                    U = np.dot(self.W[-1], self.Y[-2])
+                    U = np.dot(k_D*self.W[-1], self.Y[-2])
+                    self.weight_prod_matrices[k*n_training_examples + n + 1] = U
                     p = np.dot((I - U).T, I - U)
                     self.max_weight_eigvals[k*n_training_examples + n + 1] = np.amax(np.linalg.eigvals(p))
-
-                    self.errs[k*n_training_examples + n] = self.err
                     
                     if plot_eigvals and k == 0 and n == 0:
                         # draw initial plots
-                        A = self.Us[0]
+                        A = self.jacobian_prod_matrices[0]
                         im_plot = ax1.imshow(A, interpolation='nearest', vmin=0, vmax=1)
                         fig.colorbar(im_plot, ax=ax1)
-                        err_plot, = ax2.plot(np.arange(1), self.errs[0])
+                        if record_loss:
+                            loss_plot, = ax2.plot(np.arange(1), self.losses[0])
                         max_jacobian_plot, = ax3.plot(np.arange(1), self.max_jacobian_eigvals[0])
                         fig.canvas.draw()
                         fig.canvas.flush_events()
@@ -748,21 +759,22 @@ class Network:
                         bp_angle = np.arccos(np.sum(self.l[0].delta_b_bp * self.l[0].delta_b) / (np.linalg.norm(self.l[0].delta_b_bp)*np.linalg.norm(self.l[0].delta_b.T)))*180.0/np.pi
                         self.bp_angles[k*n_training_examples + n] = bp_angle
 
-                if ((n+1) % 100) == 0:
-                    if calculate_eigvals and plot_eigvals:
+                if (n+1) % 100 == 0:
+                    if record_eigvals and plot_eigvals:
                         max_inds = np.argsort(self.max_jacobian_eigvals[k*n_training_examples + n -100:k*n_training_examples + n])
                         max_ind = np.argmax(self.max_jacobian_eigvals[k*n_training_examples + n-100:k*n_training_examples + n])
                         min_ind = np.argmin(self.max_jacobian_eigvals[k*n_training_examples + n-100:k*n_training_examples + n])
                         n_small = np.sum(self.max_jacobian_eigvals[k*n_training_examples + n-100:k*n_training_examples + n] < 1)
             
                         # update plots
-                        A = np.mean( np.array([self.Us[k*n_training_examples + n-100:k*n_training_examples + n][i] for i in max_inds][:-10]), axis=0 )
+                        A = np.mean( np.array([self.jacobian_prod_matrices[k*n_training_examples + n-100:k*n_training_examples + n][i] for i in max_inds][:-10]), axis=0 )
                         im_plot.set_data(A)
 
-                        err_plot.set_xdata(np.arange(k*n_training_examples + n))
-                        err_plot.set_ydata(self.errs[:k*n_training_examples + n])
-                        ax2.set_xlim(0, k*n_training_examples + n)
-                        ax2.set_ylim(np.amin(self.errs[:k*n_training_examples + n]) - 1e-6, np.amax(self.errs[:k*n_training_examples + n]) + 1e-6)
+                        if record_loss:
+                            loss_plot.set_xdata(np.arange(k*n_training_examples + n))
+                            loss_plot.set_ydata(self.losses[:k*n_training_examples + n])
+                            ax2.set_xlim(0, k*n_training_examples + n)
+                            ax2.set_ylim(np.amin(self.losses[:k*n_training_examples + n]) - 1e-6, np.amax(self.losses[:k*n_training_examples + n]) + 1e-6)
 
                         max_jacobian_plot.set_xdata(np.arange(k*n_training_examples + n))
                         max_jacobian_plot.set_ydata(self.max_jacobian_eigvals[:k*n_training_examples + n])
@@ -772,9 +784,9 @@ class Network:
                         fig.canvas.draw()
                         fig.canvas.flush_events()
 
-                if ((n+1) % 1000 == 0):
+                if (n+1) % 1000 == 0:
                     # do quick weight test
-                    print("\x1b[2K\rEpoch {0}, example {1}. ".format(k, n), end="")
+                    print("\x1b[2K\rEpoch {0}, example {1}. ".format(k, n+1), end="")
                     test_err = self.test_weights(n_test=n_quick_test)
                     print("QE: {0:05.2f}%. ".format(test_err), end="")
 
@@ -793,12 +805,14 @@ class Network:
                                 # save backprop angles
                                 np.save(os.path.join(self.exp_path, "bp_angles.npy"), self.bp_angles)
 
-                        if calculate_eigvals:
+                        if record_eigvals:
                             # save eigenvalues
                             np.save(os.path.join(self.exp_path, "max_jacobian_eigvals.npy"), self.max_jacobian_eigvals)
                             np.save(os.path.join(self.exp_path, "max_weight_eigvals.npy"), self.max_weight_eigvals)
+                            np.save(os.path.join(self.exp_path, "jacobian_prod_matrices.npy"), self.jacobian_prod_matrices)
+                            np.save(os.path.join(self.exp_path, "weight_prod_matrices.npy"), self.weight_prod_matrices)
 
-                            print("Min max Jacobian eigenvalue from the last 1000 examples: {}".format(np.amin(self.max_jacobian_eigvals[max(0, k*n_training_examples + n - 1000):k*n_training_examples + n + 1])))
+                            print("\nMin max Jacobian eigenvalue from the last 1000 examples: {}".format(np.amin(self.max_jacobian_eigvals[max(0, k*n_training_examples + n - 1000):k*n_training_examples + n + 1])))
                             print("Amount of last 1000 examples w/ Jacobian eigenvalue < 1: {}".format(np.sum(self.max_jacobian_eigvals[max(0, k*n_training_examples + n - 1000):k*n_training_examples + n + 1] < 1)))
                             print("\n")
                     
@@ -894,8 +908,8 @@ class Network:
                 num_correct += 1
 
             # print every 100 testing examples
-            if n % 100 == 0 and n != 0:
-                sys.stdout.write("\x1b[2K\rTesting example {0:05d}. E: {1:05.2f}%.".format(n, (1.0 - float(num_correct)/(n+1))*100.0))
+            if (n + 1) % 100  == 0:
+                sys.stdout.write("\x1b[2K\rTesting example {0:05d}. E: {1:05.2f}%.".format(n+1, (1.0 - float(num_correct)/(n+1))*100.0))
                 sys.stdout.flush()
 
         # calculate percent error
