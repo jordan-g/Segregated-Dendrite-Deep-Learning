@@ -805,6 +805,9 @@ class Network:
                                 # save backprop angles
                                 np.save(os.path.join(self.exp_path, "bp_angles.npy"), self.bp_angles)
 
+                        if record_loss:
+                            np.save(os.path.join(self.exp_path, "final_layer_loss.npy"), self.losses)
+
                         if record_eigvals:
                             # save eigenvalues
                             np.save(os.path.join(self.exp_path, "max_jacobian_eigvals.npy"), self.max_jacobian_eigvals)
