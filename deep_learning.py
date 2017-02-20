@@ -22,6 +22,7 @@ import pdb
 import sys
 import time
 import shutil
+import json
 
 if sys.version_info >= (3,):
     xrange = range
@@ -46,14 +47,15 @@ use_sparse_feedback     = False # use sparse feedback weights
 update_backward_weights = False # update backward weights
 use_backprop            = False # use error backpropagation
 use_apical_conductance  = False # use attenuated conductance from apical dendrite to soma
+use_weight_optimization = True
 
 record_backprop_angle   = True  # record angle b/w hidden layer error signals and backprop-generated error signals
 record_eigvals          = True  # record maximum eigenvalues for Jacobians
 record_loss             = True  # record final layer loss during training
 plot_eigvals            = False # dynamically plot maximum eigenvalues for Jacobians
 
-default_exp_folder = 'Experiments/' # folder in which to save experiments (edit accordingly)
-weight_cmap        = 'bone'         # color map to use for weight plotting
+default_simulations_folder = 'Simulations/' # folder in which to save simulations (edit accordingly)
+weight_cmap                = 'bone'         # color map to use for weight plotting
 
 dt  = 1.0         # time step (ms)
 mem = int(15/dt)  # spike memory (time steps) - used to limit PSP integration of past spikes (for performance)
@@ -148,6 +150,15 @@ class Network:
         self.init_layers()
 
     def init_weights(self):
+        if use_weight_optimization:
+            # initial weight optimization parameters
+            V_avg = 3                  # desired average of dendritic potential
+            V_sd  = 3                  # desired standard deviation of dendritic potential
+            b_avg = 0.8                # desired average of bias
+            b_sd  = 0.001              # desired standard deviation of bias
+            nu    = phi_max*0.25       # slope of linear region of activation function
+            V_sm  = V_sd**2 + V_avg**2 # second moment of dendritic potential
+
         # initialize lists of weight matrices & bias vectors
         self.W, self.b, self.Y, self.c = ([0]*self.M for _ in xrange(4))
 
@@ -166,17 +177,36 @@ class Network:
                 N = self.n_in
 
             # generate forward weights & biases
-            self.W[m] = 0.1*(np.random.uniform(size=(self.n[m], N)) - 0.5)
-            self.b[m] = 1.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
+            if use_weight_optimization:
+                # calculate weight variables needed to get desired average & strandard deviations of somatic potentials
+                W_avg = (V_avg - b_avg)/(nu*N*V_avg)
+                W_sm = (V_sm + (nu**2)*(N - N**2)*(W_avg**2)*(V_avg**2) - 2*N*nu*b_avg*V_avg*W_avg - (b_avg**2))/(N*(nu**2)*V_sm)
+                W_sd = np.sqrt(W_sm - W_avg**2)
+            
+                self.W[m] = W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], N)) - 0.5)
+                self.b[m] = b_avg + 3.465*b_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
+            else:
+                self.W[m] = 0.1*(np.random.uniform(size=(self.n[m], N)) - 0.5)
+                self.b[m] = 1.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
 
             # generate backward weights
             if m != 0:
                 if use_broadcast:
-                    self.Y[m-1] = np.dot(2.0*(np.random.uniform(size=(N, self.n[m])) - 0.5), self.Y[m])
-                    self.c[m-1] = np.dot(self.Y[m-1], 2.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5))
+                    if use_weight_optimization:
+                        self.Y[m-1] = np.dot(3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5), self.Y[m])
+                        self.c[m-1] = np.dot(self.Y[m-1], 3.465*W_sd*(np.random.uniform(size=(self.n[-1], 1)) - 0.5))
+                    else:
+                        # self.Y[m-1] = np.dot(2.0*(np.random.uniform(size=(N, self.n[m])) - 0.5), self.Y[m])
+                        # self.c[m-1] = np.dot(self.Y[m-1], 2.0*(np.random.uniform(size=(self.n[-1], 1)) - 0.5))
+                        self.Y[m-1] = (np.random.uniform(size=(N, self.n[-1])) - 0.5)
+                        self.c[m-1] = (np.random.uniform(size=(N, 1)) - 0.5)
                 else:
-                    self.Y[m-1] = 2.0*(np.random.uniform(size=(N, self.n[m])) - 0.5)
-                    self.c[m-1] = 2.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
+                    if use_weight_optimization:
+                         self.Y[m-1] = W_avg + 3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5)
+                         self.c[m-1] = W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
+                    else:
+                        self.Y[m-1] = 2.0*(np.random.uniform(size=(N, self.n[m])) - 0.5)
+                        self.c[m-1] = 2.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
 
             print("Layer {0} | W_avg: {1:.6f}, W_sd: {2:.6f},\n".format(m, np.mean(self.W[m]), np.std(self.W[m]))
                   + "          b_avg: {0:.6f}, b_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
@@ -410,15 +440,15 @@ class Network:
                 if update_backward_weights:
                     self.l[m].average_PSP_A_f /= l_f_phase - settle_dur
 
-        if record_voltages and self.exp_path:
+        if record_voltages and self.simulation_path:
             # append voltages to files
             for m in xrange(self.M):
                 if m != self.M-1:
-                    with open(os.path.join(self.exp_path, 'A_hist_{}.csv'.format(m)), 'a') as A_hist_file:
+                    with open(os.path.join(self.simulation_path, 'A_hist_{}.csv'.format(m)), 'a') as A_hist_file:
                         np.savetxt(A_hist_file, self.A_hists[m])
-                with open(os.path.join(self.exp_path, 'B_hist_{}.csv'.format(m)), 'a') as B_hist_file:
+                with open(os.path.join(self.simulation_path, 'B_hist_{}.csv'.format(m)), 'a') as B_hist_file:
                     np.savetxt(B_hist_file, self.B_hists[m])
-                with open(os.path.join(self.exp_path, 'C_hist_{}.csv'.format(m)), 'a') as C_hist_file:
+                with open(os.path.join(self.simulation_path, 'C_hist_{}.csv'.format(m)), 'a') as C_hist_file:
                     np.savetxt(C_hist_file, self.C_hists[m])
 
     def t_phase(self, x, t, training=False, record_voltages=False, upd_b_weights=False):
@@ -506,18 +536,18 @@ class Network:
                 # increase magnitude of surviving weights
                 self.Y[m] *= 5
 
-        if record_voltages and self.exp_path:
+        if record_voltages and self.simulation_path:
             # append voltages to files
             for m in xrange(self.M):
                 if m != self.M-1:
-                    with open(os.path.join(self.exp_path, 'A_hist_{}.csv'.format(m)), 'a') as A_hist_file:
+                    with open(os.path.join(self.simulation_path, 'A_hist_{}.csv'.format(m)), 'a') as A_hist_file:
                         np.savetxt(A_hist_file, self.A_hists[m])
-                with open(os.path.join(self.exp_path, 'B_hist_{}.csv'.format(m)), 'a') as B_hist_file:
+                with open(os.path.join(self.simulation_path, 'B_hist_{}.csv'.format(m)), 'a') as B_hist_file:
                     np.savetxt(B_hist_file, self.B_hists[m])
-                with open(os.path.join(self.exp_path, 'C_hist_{}.csv'.format(m)), 'a') as C_hist_file:
+                with open(os.path.join(self.simulation_path, 'C_hist_{}.csv'.format(m)), 'a') as C_hist_file:
                     np.savetxt(C_hist_file, self.C_hists[m])
 
-    def train(self, f_etas, b_etas, n_epochs, n_training_examples, save_experiment, exp_folder=default_exp_folder, suffix="", exp_notes=None, record_voltages=False):
+    def train(self, f_etas, b_etas, n_epochs, n_training_examples, save_simulation, simulations_folder=default_simulations_folder, folder_name="", exp_notes=None, record_voltages=False):
         print("Starting training.\n")
 
         if use_rand_phase_lengths:
@@ -526,30 +556,34 @@ class Network:
             l_f_phases = min_l_f_phase + np.random.wald(2, 1, n_epochs*n_training_examples)
             l_t_phases = min_l_t_phase + np.random.wald(2, 1, n_epochs*n_training_examples)
 
-        # don't record voltages if we're not saving the experiment
-        record_voltages = record_voltages and save_experiment
+        # don't record voltages if we're not saving the simulation
+        record_voltages = record_voltages and save_simulation
 
         # initialize input spike history
         self.x_hist = np.zeros((self.n_in, mem))
 
-        # get current date/time and create experiment directory
-        if save_experiment:
+        # get current date/time and create simulation directory
+        if save_simulation:
             exp_start_time = datetime.datetime.now()
-            self.exp_path = os.path.join(exp_folder, "{}.{}.{}-{}.{}".format(exp_start_time.year,
-                                                                             exp_start_time.month,
-                                                                             exp_start_time.day,
-                                                                             exp_start_time.hour,
-                                                                             exp_start_time.minute) + "_{}".format(suffix)*(len(suffix) != 0))
-            
-            # make experiment directory
-            if not os.path.exists(self.exp_path):
-                os.makedirs(self.exp_path)
 
-            # copy current script to experiment directory
+            if folder_name == "":
+                self.simulation_path = os.path.join(simulations_folder, "{}.{}.{}-{}.{}".format(exp_start_time.year,
+                                                                                 exp_start_time.month,
+                                                                                 exp_start_time.day,
+                                                                                 exp_start_time.hour,
+                                                                                 exp_start_time.minute))
+            else:
+                self.simulation_path = os.path.join(simulations_folder, folder_name)
+            
+            # make simulation directory
+            if not os.path.exists(self.simulation_path):
+                os.makedirs(self.simulation_path)
+
+            # copy current script to simulation directory
             filename = os.path.basename(__file__)
             if filename.endswith('pyc'):
                 filename = filename[:-1]
-            shutil.copyfile(filename, os.path.join(self.exp_path, filename))
+            shutil.copyfile(filename, os.path.join(self.simulation_path, filename))
 
             params = {
                 'n_full_test'            : n_full_test,
@@ -565,6 +599,7 @@ class Network:
                 'update_backward_weights': update_backward_weights,
                 'use_backprop'           : use_backprop,
                 'use_apical_conductance' : use_apical_conductance,
+                'use_weight_optimization': use_weight_optimization,
                 'record_backprop_angle'  : record_backprop_angle,
                 'record_loss'            : record_loss,
                 'record_eigvals'         : record_eigvals,
@@ -595,27 +630,30 @@ class Network:
                 'exp_start_time'         : exp_start_time
             }
 
-            # save experiment params
-            with open(os.path.join(self.exp_path, 'experiment.txt'), 'w') as experiment_file:
-                print("Experiment done on {}.{}.{}-{}.{}.".format(exp_start_time.year,
+            # save simulation params
+            with open(os.path.join(self.simulation_path, 'simulation.txt'), 'w') as simulation_file:
+                print("simulation done on {}.{}.{}-{}.{}.".format(exp_start_time.year,
                                                                  exp_start_time.month,
                                                                  exp_start_time.day,
                                                                  exp_start_time.hour,
-                                                                 exp_start_time.minute), file=experiment_file)
+                                                                 exp_start_time.minute), file=simulation_file)
                 if exp_notes:
-                    print(exp_notes, file=experiment_file)
-                print("-----------------------------", file=experiment_file)
+                    print(exp_notes, file=simulation_file)
+                print("-----------------------------", file=simulation_file)
                 for key, value in sorted(params.items()):
                     line = '{}: {}'.format(key, value)
-                    print(line, file=experiment_file)
+                    print(line, file=simulation_file)
+
+            with open(os.path.join(self.simulation_path, 'simulation.json'), 'w') as simulation_file:
+                simulation_file.write(json.dumps(params))
 
         # set learning rate instance variables
         self.f_etas = f_etas
         self.b_etas = b_etas
 
-        if save_experiment:
+        if save_simulation:
             # save initial weights
-            self.save_weights(self.exp_path, prefix='initial_')
+            self.save_weights(self.simulation_path, prefix='initial_')
 
         # initialize full test error recording array
         self.full_test_errs  = np.zeros(n_epochs + 1)
@@ -662,21 +700,21 @@ class Network:
 
         self.full_test_errs[0] = test_err
 
-        if save_experiment:
+        if save_simulation:
             # save full test error
-            np.save(os.path.join(self.exp_path, "full_test_errors.npy"), self.full_test_errs)
+            np.save(os.path.join(self.simulation_path, "full_test_errors.npy"), self.full_test_errs)
 
-            with open(os.path.join(self.exp_path, "full_test_errors.txt"), 'a') as test_err_file:
+            with open(os.path.join(self.simulation_path, "full_test_errors.txt"), 'a') as test_err_file:
                 line = "%.10f" % test_err
                 print(line, file=test_err_file)
 
         self.quick_test_errs[0] = test_err
 
-        if save_experiment:
+        if save_simulation:
             # save quick test error
-            np.save(os.path.join(self.exp_path, "quick_test_errors.npy"), self.quick_test_errs)
+            np.save(os.path.join(self.simulation_path, "quick_test_errors.npy"), self.quick_test_errs)
 
-            with open(os.path.join(self.exp_path, "quick_test_errors.txt"), 'a') as test_err_file:
+            with open(os.path.join(self.simulation_path, "quick_test_errors.txt"), 'a') as test_err_file:
                 line = "%.10f" % test_err
                 print(line, file=test_err_file)
 
@@ -792,28 +830,28 @@ class Network:
 
                     self.quick_test_errs[k*int(n_training_examples/1000) + int(n/1000)] = test_err
 
-                    if save_experiment:
+                    if save_simulation:
                         # save quick test error
-                        np.save(os.path.join(self.exp_path, "quick_test_errors.npy"), self.quick_test_errs)
+                        np.save(os.path.join(self.simulation_path, "quick_test_errors.npy"), self.quick_test_errs)
 
-                        with open(os.path.join(self.exp_path, "quick_test_errors.txt"), 'a') as test_err_file:
+                        with open(os.path.join(self.simulation_path, "quick_test_errors.txt"), 'a') as test_err_file:
                             line = "%.10f" % test_err
                             print(line, file=test_err_file)
 
                         if record_backprop_angle:
                             if self.M > 1:
                                 # save backprop angles
-                                np.save(os.path.join(self.exp_path, "bp_angles.npy"), self.bp_angles)
+                                np.save(os.path.join(self.simulation_path, "bp_angles.npy"), self.bp_angles)
 
                         if record_loss:
-                            np.save(os.path.join(self.exp_path, "final_layer_loss.npy"), self.losses)
+                            np.save(os.path.join(self.simulation_path, "final_layer_loss.npy"), self.losses)
 
                         if record_eigvals:
                             # save eigenvalues
-                            np.save(os.path.join(self.exp_path, "max_jacobian_eigvals.npy"), self.max_jacobian_eigvals)
-                            np.save(os.path.join(self.exp_path, "max_weight_eigvals.npy"), self.max_weight_eigvals)
-                            np.save(os.path.join(self.exp_path, "jacobian_prod_matrices.npy"), self.jacobian_prod_matrices)
-                            np.save(os.path.join(self.exp_path, "weight_prod_matrices.npy"), self.weight_prod_matrices)
+                            np.save(os.path.join(self.simulation_path, "max_jacobian_eigvals.npy"), self.max_jacobian_eigvals)
+                            np.save(os.path.join(self.simulation_path, "max_weight_eigvals.npy"), self.max_weight_eigvals)
+                            np.save(os.path.join(self.simulation_path, "jacobian_prod_matrices.npy"), self.jacobian_prod_matrices)
+                            np.save(os.path.join(self.simulation_path, "weight_prod_matrices.npy"), self.weight_prod_matrices)
 
                             print("\nMin max Jacobian eigenvalue from the last 1000 examples: {}".format(np.amin(self.max_jacobian_eigvals[max(0, k*n_training_examples + n - 1000):k*n_training_examples + n + 1])))
                             print("Amount of last 1000 examples w/ Jacobian eigenvalue < 1: {}".format(np.sum(self.max_jacobian_eigvals[max(0, k*n_training_examples + n - 1000):k*n_training_examples + n + 1] < 1)))
@@ -842,29 +880,29 @@ class Network:
             self.full_test_errs[k+1] = test_err
             self.quick_test_errs[(k+1)*int(n_training_examples/1000)] = test_err
 
-            if save_experiment:
+            if save_simulation:
                 # save test error
-                np.save(os.path.join(self.exp_path, "full_test_errors.npy"), self.full_test_errs)
+                np.save(os.path.join(self.simulation_path, "full_test_errors.npy"), self.full_test_errs)
 
-                with open(os.path.join(self.exp_path, "full_test_errors.txt"), 'a') as test_err_file:
+                with open(os.path.join(self.simulation_path, "full_test_errors.txt"), 'a') as test_err_file:
                     line = "%.10f" % test_err
                     print(line, file=test_err_file)
 
-                np.save(os.path.join(self.exp_path, "quick_test_errors.npy"), self.quick_test_errs)
+                np.save(os.path.join(self.simulation_path, "quick_test_errors.npy"), self.quick_test_errs)
 
-                with open(os.path.join(self.exp_path, "quick_test_errors.txt"), 'a') as test_err_file:
+                with open(os.path.join(self.simulation_path, "quick_test_errors.txt"), 'a') as test_err_file:
                     line = "%.10f" % test_err
                     print(line, file=test_err_file)
 
                 # save weights
-                self.save_weights(self.exp_path, prefix="epoch_{}_".format(k))
+                self.save_weights(self.simulation_path, prefix="epoch_{}_".format(k))
 
         # record end time of training
-        if save_experiment:
-            with open(self.exp_path + 'experiment.txt', 'a') as experiment_file:
+        if save_simulation:
+            with open(self.simulation_path + 'simulation.txt', 'a') as simulation_file:
                 exp_end_time = datetime.datetime.now()
                 line = 'exp_end_time: {}'.format(exp_end_time)
-                print(line, file=experiment_file)
+                print(line, file=simulation_file)
 
     def test_weights(self, n_test=n_quick_test):
         global l_f_phase
@@ -943,12 +981,14 @@ class Network:
             np.save(os.path.join(path, prefix + "f_weights_{}.npy".format(m)), self.W[m])
             np.save(os.path.join(path, prefix + "f_bias_{}.npy".format(m)), self.b[m])
             np.save(os.path.join(path, prefix + "b_weights_{}.npy".format(m)), self.Y[m])
+            np.save(os.path.join(path, prefix + "b_bias_{}.npy".format(m)), self.c[m])
 
     def load_weights(self, path, prefix=""):
         for m in xrange(self.M):
             self.W[m] = np.load(os.path.join(path, prefix + "f_weights_{}.npy".format(m)))
             self.b[m] = np.load(os.path.join(path, prefix + "f_bias_{}.npy".format(m)))
             self.Y[m] = np.load(os.path.join(path, prefix + "b_weights_{}.npy".format(m)))
+            self.c[m] = np.load(os.path.join(path, prefix + "b_bias_{}.npy".format(m)))
 
 # ---------------------------------------------------------------
 """                     Layer classes                         """
@@ -1219,6 +1259,72 @@ class finalLayer(Layer):
 # ---------------------------------------------------------------
 """                     Helper functions                      """
 # ---------------------------------------------------------------
+
+def load_network(simulation_path, epoch):
+    # load parameters
+    with open(os.path.join(simulation_path, 'simulation.json'), 'r') as simulation_file:
+        params = json.loads(simulation_file.read())
+
+    # set global parameters
+    global n_full_test, n_quick_test
+    global use_rand_phase_lengths, use_conductances, use_broadcast, use_spiking_feedback, use_spiking_feedforward
+    global use_symmetric_weights, noisy_symmetric_weights
+    global use_sparse_feedback, update_backward_weights, use_backprop, use_apical_conductance, use_weight_optimization
+    global record_backprop_angle, record_eigvals, record_loss, plot_eigvals
+    global dt, mem
+    global l_f_phase, l_t_phase, l_f_phase_test, settle_dur
+    global phi_max
+    global tau_s, tau_L
+    global g_B, g_A, g_L, g_D
+    global k_B, k_D, k_I
+    global P_hidden, P_final
+
+    n_full_test             = params['n_full_test']
+    n_quick_test            = params['n_quick_test']
+    use_rand_phase_lengths  = params['use_rand_phase_lengths']
+    use_conductances        = params['use_conductances']
+    use_broadcast           = params['use_broadcast']
+    use_spiking_feedback    = params['use_spiking_feedback']
+    use_spiking_feedforward = params['use_spiking_feedforward']
+    use_symmetric_weights   = params['use_symmetric_weights']
+    use_sparse_feedback     = params['use_sparse_feedback']
+    update_backward_weights = params['update_backward_weights']
+    use_backprop            = params['use_backprop']
+    use_apical_conductance  = params['use_apical_conductance']
+    use_weight_optimization = params['use_weight_optimization']
+    record_backprop_angle   = params['record_backprop_angle']
+    record_eigvals          = params['record_eigvals']
+    record_loss             = params['record_loss']
+    plot_eigvals            = params['plot_eigvals']
+    dt                      = params['dt']
+    mem                     = params['mem']
+    l_f_phase               = params['l_f_phase']
+    l_t_phase               = params['l_t_phase']
+    l_f_phase_test          = params['l_f_phase_test']
+    settle_dur              = params['settle_dur']
+    phi_max                 = params['phi_max']
+    tau_s                   = params['tau_s']
+    tau_L                   = params['tau_L']
+    g_B                     = params['g_B']
+    g_A                     = params['g_A']
+    g_L                     = params['g_L']
+    g_D                     = params['g_D']
+    k_B                     = params['k_B']
+    k_D                     = params['k_D']
+    k_I                     = params['k_I']
+    P_hidden                = params['g_L']
+    P_final                 = params['P_final']
+
+    n                       = params['n']
+    f_etas                  = params['f_etas']
+    b_etas                  = params['b_etas']
+    n_training_examples     = params['n_training_examples']
+
+    # create network and load weights
+    net = Network(n=n)
+    net.load_weights(simulation_path, prefix="epoch_{}_".format(epoch))
+
+    return net, f_etas, b_etas, n_training_examples
 
 # --- MNIST --- #
 
