@@ -5,7 +5,7 @@ by Jordan Guergiuev, Timothy P. Lillicrap, Blake A. Richards.
 
      Author: Jordan Guergiuev
      E-mail: guerguiev.j@gmail.com
-       Date: Sept 28, 2016
+       Date: March 3, 2017
 Institution: University of Toronto Scarborough
 '''
 
@@ -47,11 +47,14 @@ use_sparse_feedback     = False # use sparse feedback weights
 update_backward_weights = False # update backward weights
 use_backprop            = False # use error backpropagation
 use_apical_conductance  = False # use attenuated conductance from apical dendrite to soma
-use_weight_optimization = True
+use_weight_optimization = False # attempt to optimize initial weights (better without currently)
 
 record_backprop_angle   = True  # record angle b/w hidden layer error signals and backprop-generated error signals
-record_eigvals          = True  # record maximum eigenvalues for Jacobians
 record_loss             = True  # record final layer loss during training
+
+# --- Jacobian testing --- #
+record_eigvals          = False # record maximum eigenvalues for Jacobians
+record_matrices         = False # record Jacobian product & weight product matrices (huge arrays for long simulations -- careful)
 plot_eigvals            = False # dynamically plot maximum eigenvalues for Jacobians
 
 default_simulations_folder = 'Simulations/' # folder in which to save simulations (edit accordingly)
@@ -146,6 +149,11 @@ class Network:
 
         self.x_hist = None # history of input spikes
 
+        self.last_epoch = None # last epoch of simulation
+
+        print("Creating network with {} layers.".format(self.M))
+        print("--------------------------------")
+
         self.init_weights()
         self.init_layers()
 
@@ -196,8 +204,6 @@ class Network:
                         self.Y[m-1] = np.dot(3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5), self.Y[m])
                         self.c[m-1] = np.dot(self.Y[m-1], 3.465*W_sd*(np.random.uniform(size=(self.n[-1], 1)) - 0.5))
                     else:
-                        # self.Y[m-1] = np.dot(2.0*(np.random.uniform(size=(N, self.n[m])) - 0.5), self.Y[m])
-                        # self.c[m-1] = np.dot(self.Y[m-1], 2.0*(np.random.uniform(size=(self.n[-1], 1)) - 0.5))
                         self.Y[m-1] = (np.random.uniform(size=(N, self.n[-1])) - 0.5)
                         self.c[m-1] = (np.random.uniform(size=(N, 1)) - 0.5)
                 else:
@@ -205,12 +211,14 @@ class Network:
                          self.Y[m-1] = W_avg + 3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5)
                          self.c[m-1] = W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
                     else:
-                        self.Y[m-1] = 2.0*(np.random.uniform(size=(N, self.n[m])) - 0.5)
-                        self.c[m-1] = 2.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
+                        self.Y[m-1] = (np.random.uniform(size=(N, self.n[m])) - 0.5)
+                        self.c[m-1] = (np.random.uniform(size=(self.n[m], 1)) - 0.5)
 
-            print("Layer {0} | W_avg: {1:.6f}, W_sd: {2:.6f},\n".format(m, np.mean(self.W[m]), np.std(self.W[m]))
-                  + "          b_avg: {0:.6f}, b_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
-                  + "          Y_avg: {0:.6f}, Y_sd: {1:.6f}.".format(np.mean(self.Y[m]), np.std(self.Y[m])))
+            print("Layer {0} -- {1} units.".format(m, self.n[m]))
+            print("\tW_avg: {0:.6f},\tW_sd: {1:.6f},\n".format(np.mean(self.W[m]), np.std(self.W[m]))
+                + "\tb_avg: {0:.6f},\tb_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
+                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f}.".format(np.mean(self.Y[m]), np.std(self.Y[m])))
+        print("--------------------------------\n")
 
         if use_symmetric_weights:
             # enforce symmetric weights
@@ -547,8 +555,12 @@ class Network:
                 with open(os.path.join(self.simulation_path, 'C_hist_{}.csv'.format(m)), 'a') as C_hist_file:
                     np.savetxt(C_hist_file, self.C_hists[m])
 
-    def train(self, f_etas, b_etas, n_epochs, n_training_examples, save_simulation, simulations_folder=default_simulations_folder, folder_name="", exp_notes=None, record_voltages=False):
+    def train(self, f_etas, b_etas, n_epochs, n_training_examples, save_simulation, simulations_folder=default_simulations_folder, folder_name="", exp_notes=None, record_voltages=False, last_epoch=-1):
         print("Starting training.\n")
+
+        if self.last_epoch == None:
+            # set last completed epoch
+            self.last_epoch = last_epoch
 
         if use_rand_phase_lengths:
             # generate phase lengths for all training examples
@@ -564,14 +576,14 @@ class Network:
 
         # get current date/time and create simulation directory
         if save_simulation:
-            exp_start_time = datetime.datetime.now()
+            sim_start_time = datetime.datetime.now()
 
             if folder_name == "":
-                self.simulation_path = os.path.join(simulations_folder, "{}.{}.{}-{}.{}".format(exp_start_time.year,
-                                                                                 exp_start_time.month,
-                                                                                 exp_start_time.day,
-                                                                                 exp_start_time.hour,
-                                                                                 exp_start_time.minute))
+                self.simulation_path = os.path.join(simulations_folder, "{}.{}.{}-{}.{}".format(sim_start_time.year,
+                                                                                 sim_start_time.month,
+                                                                                 sim_start_time.day,
+                                                                                 sim_start_time.hour,
+                                                                                 sim_start_time.minute))
             else:
                 self.simulation_path = os.path.join(simulations_folder, folder_name)
             
@@ -603,6 +615,7 @@ class Network:
                 'record_backprop_angle'  : record_backprop_angle,
                 'record_loss'            : record_loss,
                 'record_eigvals'         : record_eigvals,
+                'record_matrices'        : record_matrices,
                 'plot_eigvals'           : plot_eigvals,
                 'dt'                     : dt,
                 'mem'                    : mem,
@@ -626,40 +639,62 @@ class Network:
                 'f_etas'                 : f_etas,
                 'b_etas'                 : b_etas,
                 'n_training_examples'    : n_training_examples,
-                'n_epochs'               : n_epochs,
-                'exp_start_time'         : exp_start_time
+                'n_epochs'               : n_epochs
             }
 
             # save simulation params
-            with open(os.path.join(self.simulation_path, 'simulation.txt'), 'w') as simulation_file:
-                print("simulation done on {}.{}.{}-{}.{}.".format(exp_start_time.year,
-                                                                 exp_start_time.month,
-                                                                 exp_start_time.day,
-                                                                 exp_start_time.hour,
-                                                                 exp_start_time.minute), file=simulation_file)
-                if exp_notes:
-                    print(exp_notes, file=simulation_file)
-                print("-----------------------------", file=simulation_file)
-                for key, value in sorted(params.items()):
-                    line = '{}: {}'.format(key, value)
-                    print(line, file=simulation_file)
+            if self.last_epoch < 0:
+                with open(os.path.join(self.simulation_path, 'simulation.txt'), 'w') as simulation_file:
+                    print("Simulation done on {}.{}.{}-{}.{}.".format(sim_start_time.year,
+                                                                     sim_start_time.month,
+                                                                     sim_start_time.day,
+                                                                     sim_start_time.hour,
+                                                                     sim_start_time.minute), file=simulation_file)
+                    if exp_notes:
+                        print(exp_notes, file=simulation_file)
+                    print("Start time: {}".format(sim_start_time), file=simulation_file)
+                    print("-----------------------------", file=simulation_file)
+                    for key, value in sorted(params.items()):
+                        line = '{}: {}'.format(key, value)
+                        print(line, file=simulation_file)
 
-            with open(os.path.join(self.simulation_path, 'simulation.json'), 'w') as simulation_file:
-                simulation_file.write(json.dumps(params))
+                with open(os.path.join(self.simulation_path, 'simulation.json'), 'w') as simulation_file:
+                    simulation_file.write(json.dumps(params))
+            else:
+                # load previously saved recording arrays
+                self.prev_full_test_errs   = np.load(os.path.join(self.simulation_path, "full_test_errors.npy"))
+                self.prev_quick_test_errs  = np.load(os.path.join(self.simulation_path, "quick_test_errors.npy"))
+
+                if record_backprop_angle:
+                    self.prev_bp_angles = np.load(os.path.join(self.simulation_path, "bp_angles.npy"))
+
+                if record_loss:
+                    self.prev_losses = np.load(os.path.join(self.simulation_path, "final_layer_loss.npy"))
+
+                if record_eigvals:
+                    self.prev_max_jacobian_eigvals   = np.load(os.path.join(self.simulation_path, "max_jacobian_eigvals.npy"))
+                    self.prev_max_weight_eigvals     = np.load(os.path.join(self.simulation_path, "max_weight_eigvals.npy"))
+                    if record_matrices:
+                        self.prev_jacobian_prod_matrices = np.load(os.path.join(self.simulation_path, "jacobian_prod_matrices.npy"))
+                        self.prev_weight_prod_matrices   = np.load(os.path.join(self.simulation_path, "weight_prod_matrices.npy"))
 
         # set learning rate instance variables
         self.f_etas = f_etas
         self.b_etas = b_etas
 
-        if save_simulation:
+        if save_simulation and self.last_epoch < 0:
             # save initial weights
             self.save_weights(self.simulation_path, prefix='initial_')
 
-        # initialize full test error recording array
-        self.full_test_errs  = np.zeros(n_epochs + 1)
+        if self.last_epoch < 0:
+            # initialize full test error recording array
+            self.full_test_errs  = np.zeros(n_epochs + 1)
 
-        # initialize quick test error recording array
-        self.quick_test_errs = np.zeros(n_epochs*int(n_training_examples/1000.0) + 1)
+            # initialize quick test error recording array
+            self.quick_test_errs = np.zeros(n_epochs*int(n_training_examples/1000.0) + 1)
+        else:
+            self.full_test_errs  = np.zeros(n_epochs)
+            self.quick_test_errs = np.zeros(n_epochs*int(n_training_examples/1000.0))
 
         if record_loss:
             self.losses = np.zeros(n_epochs*n_training_examples)
@@ -667,9 +702,17 @@ class Network:
         if record_eigvals:
             # initialize arrays for Jacobian testing
             self.max_jacobian_eigvals   = np.zeros(n_epochs*n_training_examples)
-            self.max_weight_eigvals     = np.zeros(n_epochs*n_training_examples + 1)
-            self.jacobian_prod_matrices = np.zeros((n_epochs*n_training_examples, self.n[-1], self.n[-1]))
-            self.weight_prod_matrices   = np.zeros((n_epochs*n_training_examples + 1, self.n[-1], self.n[-1]))
+            if record_matrices:
+                self.jacobian_prod_matrices = np.zeros((n_epochs, self.n[-1], self.n[-1]))
+
+            if self.last_epoch < 0:
+                self.max_weight_eigvals     = np.zeros(n_epochs*n_training_examples + 1)
+                if record_matrices:
+                    self.weight_prod_matrices   = np.zeros((n_epochs*n_training_examples + 1, self.n[-1], self.n[-1]))
+            else:
+                self.max_weight_eigvals     = np.zeros(n_epochs*n_training_examples)
+                if record_matrices:
+                    self.weight_prod_matrices   = np.zeros((n_epochs*n_training_examples, self.n[-1], self.n[-1]))
 
             # create identity matrix
             I = np.eye(self.n[-1])
@@ -677,46 +720,54 @@ class Network:
             # get max eigenvalues for weights
             U = np.dot(self.W[-1], self.Y[-2])
             p = np.dot((I - U).T, I - U)
-            self.max_weight_eigvals[0] = np.amax(np.real(np.linalg.eigvals(p)))
+
+            if self.last_epoch < 0:
+                if record_matrices:
+                    self.weight_prod_matrices[0] = U
+                self.max_weight_eigvals[0] = np.amax(np.real(np.linalg.eigvals(p)))
 
         if record_backprop_angle:
             # initialize backprop angles recording array
             if self.M > 1:
                 self.bp_angles = np.zeros(n_epochs*n_training_examples)
 
-        # do an initial weight test
-        print("Start of epoch 0. ", end="")
+        if self.last_epoch < 0:
+            # do an initial weight test
+            print("Start of epoch {}.".format(self.last_epoch + 1))
 
-        # set start time
-        start_time = time.time()
+            # set start time
+            start_time = time.time()
 
-        test_err = self.test_weights(n_test=n_full_test)
+            test_err = self.test_weights(n_test=n_full_test)
 
-        # get end time & elapsed time
-        end_time = time.time()
-        time_elapsed = end_time - start_time
+            # get end time & elapsed time
+            end_time = time.time()
+            time_elapsed = end_time - start_time
 
-        print("FE: {0}%. T: {1:.3f}s.\n".format(test_err, time_elapsed))
+            print("FE: {0:05.2f}%. T: {1:.3f}s.\n".format(test_err, time_elapsed))
 
-        self.full_test_errs[0] = test_err
+            self.full_test_errs[0] = test_err
 
-        if save_simulation:
-            # save full test error
-            np.save(os.path.join(self.simulation_path, "full_test_errors.npy"), self.full_test_errs)
+            if save_simulation:
+                # save full test error
+                np.save(os.path.join(self.simulation_path, "full_test_errors.npy"), self.full_test_errs)
 
-            with open(os.path.join(self.simulation_path, "full_test_errors.txt"), 'a') as test_err_file:
-                line = "%.10f" % test_err
-                print(line, file=test_err_file)
+                with open(os.path.join(self.simulation_path, "full_test_errors.txt"), 'a') as test_err_file:
+                    line = "%.10f" % test_err
+                    print(line, file=test_err_file)
 
-        self.quick_test_errs[0] = test_err
+            self.quick_test_errs[0] = test_err
 
-        if save_simulation:
-            # save quick test error
-            np.save(os.path.join(self.simulation_path, "quick_test_errors.npy"), self.quick_test_errs)
+            if save_simulation:
+                # save quick test error
+                np.save(os.path.join(self.simulation_path, "quick_test_errors.npy"), self.quick_test_errs)
 
-            with open(os.path.join(self.simulation_path, "quick_test_errors.txt"), 'a') as test_err_file:
-                line = "%.10f" % test_err
-                print(line, file=test_err_file)
+                with open(os.path.join(self.simulation_path, "quick_test_errors.txt"), 'a') as test_err_file:
+                    line = "%.10f" % test_err
+                    print(line, file=test_err_file)
+        else:
+            # do an initial weight test
+            print("Start of epoch {}.\n".format(self.last_epoch + 1))
 
         # initialize input spike history
         self.x_hist   = np.zeros((self.n_in, mem))
@@ -747,7 +798,9 @@ class Network:
 
                 # print every 100 examples
                 if (n+1) % 100 == 0:
-                    sys.stdout.write("\x1b[2K\rShowing example {0:05d}/{1}.".format(n+1, n_training_examples))
+                    # print("Epoch {0}, example {1:05d}/{2}.".format(self.last_epoch + 1 + k, n+1, n_training_examples))
+
+                    sys.stdout.write("\x1b[2K\rEpoch {0}, example {1}/{2}.".format(self.last_epoch + 1 + k, n+1, n_training_examples))
                     sys.stdout.flush()
 
                 # get training example data
@@ -770,21 +823,29 @@ class Network:
                 if record_eigvals:
                     # get max eigenvalues for jacobians
                     U = np.dot(self.J_beta, self.J_gamma)
-                    self.jacobian_prod_matrices[k*n_training_examples + n] = U
                     p = np.dot((I - U).T, I - U)
+                    if record_matrices:
+                        self.jacobian_prod_matrices[k*n_training_examples + n] = U
                     self.max_jacobian_eigvals[k*n_training_examples + n] = np.amax(np.linalg.eigvals(p))
 
                     # get max eigenvalues for weights
                     U = np.dot(k_D*self.W[-1], self.Y[-2])
-                    self.weight_prod_matrices[k*n_training_examples + n + 1] = U
                     p = np.dot((I - U).T, I - U)
-                    self.max_weight_eigvals[k*n_training_examples + n + 1] = np.amax(np.linalg.eigvals(p))
+                    if self.last_epoch < 0:
+                        if record_matrices:
+                            self.weight_prod_matrices[k*n_training_examples + n + 1] = U
+                        self.max_weight_eigvals[k*n_training_examples + n + 1] = np.amax(np.linalg.eigvals(p))
+                    else:
+                        if record_matrices:
+                            self.weight_prod_matrices[k*n_training_examples + n] = U
+                        self.max_weight_eigvals[k*n_training_examples + n] = np.amax(np.linalg.eigvals(p))
                     
                     if plot_eigvals and k == 0 and n == 0:
                         # draw initial plots
-                        A = self.jacobian_prod_matrices[0]
-                        im_plot = ax1.imshow(A, interpolation='nearest', vmin=0, vmax=1)
-                        fig.colorbar(im_plot, ax=ax1)
+                        if record_matrices:
+                            A = self.jacobian_prod_matrices[0]
+                            im_plot = ax1.imshow(A, interpolation='nearest', vmin=0, vmax=1)
+                            fig.colorbar(im_plot, ax=ax1)
                         if record_loss:
                             loss_plot, = ax2.plot(np.arange(1), self.losses[0])
                         max_jacobian_plot, = ax3.plot(np.arange(1), self.max_jacobian_eigvals[0])
@@ -805,8 +866,9 @@ class Network:
                         n_small = np.sum(self.max_jacobian_eigvals[k*n_training_examples + n-100:k*n_training_examples + n] < 1)
             
                         # update plots
-                        A = np.mean( np.array([self.jacobian_prod_matrices[k*n_training_examples + n-100:k*n_training_examples + n][i] for i in max_inds][:-10]), axis=0 )
-                        im_plot.set_data(A)
+                        if record_matrices:
+                            A = np.mean(np.array([self.jacobian_prod_matrices[k*n_training_examples + n-100:k*n_training_examples + n][i] for i in max_inds][:-10]), axis=0)
+                            im_plot.set_data(A)
 
                         if record_loss:
                             loss_plot.set_xdata(np.arange(k*n_training_examples + n))
@@ -823,86 +885,119 @@ class Network:
                         fig.canvas.flush_events()
 
                 if (n+1) % 1000 == 0:
-                    # do quick weight test
-                    print("\x1b[2K\rEpoch {0}, example {1}. ".format(k, n+1), end="")
-                    test_err = self.test_weights(n_test=n_quick_test)
-                    print("QE: {0:05.2f}%. ".format(test_err), end="")
+                    print("")
+                    if n != n_training_examples - 1:
+                        # we're partway through an epoch; do a full weight test
+                        test_err = self.test_weights(n_test=n_quick_test)
+                        print("QE: {0:05.2f}%. ".format(test_err), end="")
 
-                    self.quick_test_errs[k*int(n_training_examples/1000) + int(n/1000)] = test_err
+                        if self.last_epoch < 0:
+                            self.quick_test_errs[(k+1)*int(n_training_examples/1000)] = test_err
+                        else:
+                            self.quick_test_errs[(k+1)*int(n_training_examples/1000) - 1] = test_err
+                    else:
+                        # we've reached the end of an epoch; do a full weight test
+                        test_err = self.test_weights(n_test=n_full_test)
+                        print("FE: {0:05.2f}%. ".format(test_err), end="")
+
+                        if self.last_epoch < 0:
+                            self.full_test_errs[k+1] = test_err
+                            self.quick_test_errs[(k+1)*int(n_training_examples/1000)] = test_err
+                        else:
+                            self.full_test_errs[k] = test_err
+                            self.quick_test_errs[(k+1)*int(n_training_examples/1000) - 1] = test_err
+
+                    if record_eigvals:
+                        # print the minimum max eigenvalue of (I - J_g*J_f).T * (I - J_g*J_f) from the last 1000 examples
+                        print("Min max Jacobian eigval: {:.4f}. ".format(np.amin(self.max_jacobian_eigvals[max(0, k*n_training_examples + n - 1000):k*n_training_examples + n + 1])), end="")
+                        
+                        # print the number of max eigenvalues of (I - J_g*J_f).T * (I - J_g*J_f) from the last 1000 examples that were smaller than 1
+                        print("# max eigvals < 1: {}. ".format(np.sum(self.max_jacobian_eigvals[max(0, k*n_training_examples + n - 1000):k*n_training_examples + n + 1] < 1)), end="")
 
                     if save_simulation:
+                        print("Saving...", end="")
+                        if self.last_epoch < 0:
+                            quick_test_errs = self.quick_test_errs
+                            if n == n_training_examples - 1:
+                                full_test_errs = self.full_test_errs
+
+                            if record_backprop_angle:
+                                bp_angles = self.bp_angles
+
+                            if record_loss:
+                                losses = self.losses
+
+                            if record_eigvals:
+                                max_jacobian_eigvals   = self.max_jacobian_eigvals
+                                max_weight_eigvals     = self.max_weight_eigvals
+                                if record_matrices:
+                                    jacobian_prod_matrices = self.jacobian_prod_matrices
+                                    weight_prod_matrices   = self.weight_prod_matrices
+                        else:
+                            quick_test_errs = np.concatenate([self.prev_quick_test_errs, self.quick_test_errs], axis=0)
+                            if n == n_training_examples - 1:
+                                full_test_errs = np.concatenate([self.prev_full_test_errs, self.full_test_errs], axis=0)
+
+                            if record_backprop_angle:
+                                bp_angles = np.concatenate([self.prev_bp_angles, self.bp_angles], axis=0)
+
+                            if record_loss:
+                                losses = np.concatenate([self.prev_losses, self.losses], axis=0)
+
+                            if record_eigvals:
+                                max_jacobian_eigvals   = np.concatenate([self.prev_max_jacobian_eigvals, self.max_jacobian_eigvals], axis=0)
+                                max_weight_eigvals     = np.concatenate([self.prev_max_weight_eigvals, self.max_weight_eigvals], axis=0)
+                                if record_matrices:
+                                    jacobian_prod_matrices = np.concatenate([self.prev_jacobian_prod_matrices, self.jacobian_prod_matrices], axis=0)
+                                    weight_prod_matrices   = np.concatenate([self.prev_weight_prod_matrices, self.weight_prod_matrices], axis=0)
+
                         # save quick test error
-                        np.save(os.path.join(self.simulation_path, "quick_test_errors.npy"), self.quick_test_errs)
+                        np.save(os.path.join(self.simulation_path, "quick_test_errors.npy".format(self.last_epoch)), quick_test_errs)
 
                         with open(os.path.join(self.simulation_path, "quick_test_errors.txt"), 'a') as test_err_file:
                             line = "%.10f" % test_err
                             print(line, file=test_err_file)
 
+                        if n == n_training_examples - 1:
+                            # save test error
+                            np.save(os.path.join(self.simulation_path, "full_test_errors.npy"), full_test_errs)
+
+                            with open(os.path.join(self.simulation_path, "full_test_errors.txt"), 'a') as test_err_file:
+                                line = "%.10f" % test_err
+                                print(line, file=test_err_file)
+
+                            # save weights
+                            self.save_weights(self.simulation_path, prefix="epoch_{}_".format(self.last_epoch + 1 + k))
+
                         if record_backprop_angle:
                             if self.M > 1:
                                 # save backprop angles
-                                np.save(os.path.join(self.simulation_path, "bp_angles.npy"), self.bp_angles)
+                                np.save(os.path.join(self.simulation_path, "bp_angles.npy"), bp_angles)
 
                         if record_loss:
-                            np.save(os.path.join(self.simulation_path, "final_layer_loss.npy"), self.losses)
+                            np.save(os.path.join(self.simulation_path, "final_layer_loss.npy"), losses)
 
                         if record_eigvals:
                             # save eigenvalues
-                            np.save(os.path.join(self.simulation_path, "max_jacobian_eigvals.npy"), self.max_jacobian_eigvals)
-                            np.save(os.path.join(self.simulation_path, "max_weight_eigvals.npy"), self.max_weight_eigvals)
-                            np.save(os.path.join(self.simulation_path, "jacobian_prod_matrices.npy"), self.jacobian_prod_matrices)
-                            np.save(os.path.join(self.simulation_path, "weight_prod_matrices.npy"), self.weight_prod_matrices)
-
-                            print("\nMin max Jacobian eigenvalue from the last 1000 examples: {}".format(np.amin(self.max_jacobian_eigvals[max(0, k*n_training_examples + n - 1000):k*n_training_examples + n + 1])))
-                            print("Amount of last 1000 examples w/ Jacobian eigenvalue < 1: {}".format(np.sum(self.max_jacobian_eigvals[max(0, k*n_training_examples + n - 1000):k*n_training_examples + n + 1] < 1)))
-                            print("\n")
-                    
+                            np.save(os.path.join(self.simulation_path, "max_jacobian_eigvals.npy"), max_jacobian_eigvals)
+                            np.save(os.path.join(self.simulation_path, "max_weight_eigvals.npy"), max_weight_eigvals)
+                            if record_matrices:
+                                np.save(os.path.join(self.simulation_path, "jacobian_prod_matrices.npy"), jacobian_prod_matrices)
+                                np.save(os.path.join(self.simulation_path, "weight_prod_matrices.npy"), weight_prod_matrices)
+                        
+                        print("done. ", end="")
                     # get end time & reset start time
                     end_time = time.time()
                     time_elapsed = end_time - start_time
                     print("T: {0:.3f}s.\n".format(time_elapsed))
                     start_time = None
 
-            # do full weight test
-            print("End of epoch {}. ".format(k), end="")
-            
-            # set start time
-            start_time = time.time()
-
-            test_err = self.test_weights(n_test=n_full_test)
-
-            # get end time & elapsed time
-            end_time = time.time()
-            time_elapsed = end_time - start_time
-
-            print("FE: {0}%. T: {1:.3f}s.\n".format(test_err, time_elapsed))
-
-            self.full_test_errs[k+1] = test_err
-            self.quick_test_errs[(k+1)*int(n_training_examples/1000)] = test_err
-
-            if save_simulation:
-                # save test error
-                np.save(os.path.join(self.simulation_path, "full_test_errors.npy"), self.full_test_errs)
-
-                with open(os.path.join(self.simulation_path, "full_test_errors.txt"), 'a') as test_err_file:
-                    line = "%.10f" % test_err
-                    print(line, file=test_err_file)
-
-                np.save(os.path.join(self.simulation_path, "quick_test_errors.npy"), self.quick_test_errs)
-
-                with open(os.path.join(self.simulation_path, "quick_test_errors.txt"), 'a') as test_err_file:
-                    line = "%.10f" % test_err
-                    print(line, file=test_err_file)
-
-                # save weights
-                self.save_weights(self.simulation_path, prefix="epoch_{}_".format(k))
-
         # record end time of training
         if save_simulation:
-            with open(self.simulation_path + 'simulation.txt', 'a') as simulation_file:
-                exp_end_time = datetime.datetime.now()
-                line = 'exp_end_time: {}'.format(exp_end_time)
-                print(line, file=simulation_file)
+            with open(os.path.join(self.simulation_path, 'simulation.txt'), 'a') as simulation_file:
+                sim_end_time = datetime.datetime.now()
+                print("-----------------------------", file=simulation_file)
+                print("End time: {}".format(sim_end_time), file=simulation_file)
 
     def test_weights(self, n_test=n_quick_test):
         global l_f_phase
@@ -950,7 +1045,7 @@ class Network:
 
             # print every 100 testing examples
             if (n + 1) % 100  == 0:
-                sys.stdout.write("\x1b[2K\rTesting example {0:05d}. E: {1:05.2f}%.".format(n+1, (1.0 - float(num_correct)/(n+1))*100.0))
+                sys.stdout.write("\x1b[2K\rTesting example {0}/{1}. E: {2:05.2f}%.".format(n+1, n_test, (1.0 - float(num_correct)/(n+1))*100.0))
                 sys.stdout.flush()
 
         # calculate percent error
@@ -984,11 +1079,21 @@ class Network:
             np.save(os.path.join(path, prefix + "b_bias_{}.npy".format(m)), self.c[m])
 
     def load_weights(self, path, prefix=""):
+        print("Loading weights from \"{}\" with prefix \"{}\".".format(path, prefix))
+        print("--------------------------------")
+
         for m in xrange(self.M):
             self.W[m] = np.load(os.path.join(path, prefix + "f_weights_{}.npy".format(m)))
             self.b[m] = np.load(os.path.join(path, prefix + "f_bias_{}.npy".format(m)))
             self.Y[m] = np.load(os.path.join(path, prefix + "b_weights_{}.npy".format(m)))
             self.c[m] = np.load(os.path.join(path, prefix + "b_bias_{}.npy".format(m)))
+
+        for m in xrange(self.M-1, -1, -1):
+            print("Layer {0} -- {1} units.".format(m, self.n[m]))
+            print("\tW_avg: {0:.6f},\tW_sd: {1:.6f},\n".format(np.mean(self.W[m]), np.std(self.W[m]))
+                + "\tb_avg: {0:.6f},\tb_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
+                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f}.".format(np.mean(self.Y[m]), np.std(self.Y[m])))
+        print("--------------------------------\n")
 
 # ---------------------------------------------------------------
 """                     Layer classes                         """
@@ -1260,7 +1365,15 @@ class finalLayer(Layer):
 """                     Helper functions                      """
 # ---------------------------------------------------------------
 
-def load_network(simulation_path, epoch):
+def load_simulation(last_epoch, folder_name, simulations_folder=default_simulations_folder):
+    simulation_path = os.path.join(simulations_folder, folder_name)
+
+    print("Loading simulation from \"{}\" @ epoch {}.\n".format(simulation_path, last_epoch))
+
+    if not os.path.exists(simulation_path):
+        print("Error: Could not find simulation folder – path does not exist.")
+        return None
+
     # load parameters
     with open(os.path.join(simulation_path, 'simulation.json'), 'r') as simulation_file:
         params = json.loads(simulation_file.read())
@@ -1270,7 +1383,7 @@ def load_network(simulation_path, epoch):
     global use_rand_phase_lengths, use_conductances, use_broadcast, use_spiking_feedback, use_spiking_feedforward
     global use_symmetric_weights, noisy_symmetric_weights
     global use_sparse_feedback, update_backward_weights, use_backprop, use_apical_conductance, use_weight_optimization
-    global record_backprop_angle, record_eigvals, record_loss, plot_eigvals
+    global record_backprop_angle, record_loss, record_eigvals, record_matrices, plot_eigvals
     global dt, mem
     global l_f_phase, l_t_phase, l_f_phase_test, settle_dur
     global phi_max
@@ -1293,8 +1406,9 @@ def load_network(simulation_path, epoch):
     use_apical_conductance  = params['use_apical_conductance']
     use_weight_optimization = params['use_weight_optimization']
     record_backprop_angle   = params['record_backprop_angle']
-    record_eigvals          = params['record_eigvals']
     record_loss             = params['record_loss']
+    record_eigvals          = params['record_eigvals']
+    record_matrices         = params['record_matrices']
     plot_eigvals            = params['plot_eigvals']
     dt                      = params['dt']
     mem                     = params['mem']
@@ -1322,7 +1436,8 @@ def load_network(simulation_path, epoch):
 
     # create network and load weights
     net = Network(n=n)
-    net.load_weights(simulation_path, prefix="epoch_{}_".format(epoch))
+    net.load_weights(simulation_path, prefix="epoch_{}_".format(last_epoch))
+    net.last_epoch = last_epoch
 
     return net, f_etas, b_etas, n_training_examples
 
