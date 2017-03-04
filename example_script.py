@@ -17,7 +17,7 @@ dl.use_sparse_feedback = True
 f_etas = (0.3, 0.01)
 b_etas = None
 n_epochs = 10
-n_training_examples = 2000
+n_training_examples = 60000
 
 # create the network
 net = dl.Network(n=(500, 10))

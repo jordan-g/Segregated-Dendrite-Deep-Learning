@@ -744,7 +744,7 @@ class Network:
             end_time = time.time()
             time_elapsed = end_time - start_time
 
-            print("FE: {0:05.2f}%. T: {1:.3f}s.\n".format(test_err, time_elapsed))
+            sys.stdout.write("\x1b[2K\rFE: {0:05.2f}%. T: {1:.3f}s.\n\n".format(test_err, time_elapsed))
 
             self.full_test_errs[0] = test_err
 
@@ -889,7 +889,8 @@ class Network:
                     if n != n_training_examples - 1:
                         # we're partway through an epoch; do a full weight test
                         test_err = self.test_weights(n_test=n_quick_test)
-                        print("QE: {0:05.2f}%. ".format(test_err), end="")
+
+                        sys.stdout.write("\x1b[2K\rQE: {0:05.2f}%. ".format(test_err))
 
                         if self.last_epoch < 0:
                             self.quick_test_errs[(k+1)*int(n_training_examples/1000)] = test_err
@@ -898,7 +899,8 @@ class Network:
                     else:
                         # we've reached the end of an epoch; do a full weight test
                         test_err = self.test_weights(n_test=n_full_test)
-                        print("FE: {0:05.2f}%. ".format(test_err), end="")
+
+                        sys.stdout.write("\x1b[2K\rFE: {0:05.2f}%. ".format(test_err))
 
                         if self.last_epoch < 0:
                             self.full_test_errs[k+1] = test_err
@@ -1086,7 +1088,7 @@ class Network:
             self.W[m] = np.load(os.path.join(path, prefix + "f_weights_{}.npy".format(m)))
             self.b[m] = np.load(os.path.join(path, prefix + "f_bias_{}.npy".format(m)))
             self.Y[m] = np.load(os.path.join(path, prefix + "b_weights_{}.npy".format(m)))
-            self.c[m] = np.load(os.path.join(path, prefix + "b_bias_{}.npy".format(m)))
+            # self.c[m] = np.load(os.path.join(path, prefix + "b_bias_{}.npy".format(m)))
 
         for m in xrange(self.M-1, -1, -1):
             print("Layer {0} -- {1} units.".format(m, self.n[m]))
