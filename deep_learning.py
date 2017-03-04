@@ -701,18 +701,18 @@ class Network:
 
         if record_eigvals:
             # initialize arrays for Jacobian testing
-            self.max_jacobian_eigvals   = np.zeros(n_epochs*n_training_examples)
+            self.max_jacobian_eigvals = np.zeros(n_epochs*n_training_examples)
             if record_matrices:
-                self.jacobian_prod_matrices = np.zeros((n_epochs, self.n[-1], self.n[-1]))
+                self.jacobian_prod_matrices = np.zeros((n_epochs*n_training_examples, self.n[-1], self.n[-1]))
 
             if self.last_epoch < 0:
-                self.max_weight_eigvals     = np.zeros(n_epochs*n_training_examples + 1)
+                self.max_weight_eigvals = np.zeros(n_epochs*n_training_examples + 1)
                 if record_matrices:
-                    self.weight_prod_matrices   = np.zeros((n_epochs*n_training_examples + 1, self.n[-1], self.n[-1]))
+                    self.weight_prod_matrices = np.zeros((n_epochs*n_training_examples + 1, self.n[-1], self.n[-1]))
             else:
-                self.max_weight_eigvals     = np.zeros(n_epochs*n_training_examples)
+                self.max_weight_eigvals = np.zeros(n_epochs*n_training_examples)
                 if record_matrices:
-                    self.weight_prod_matrices   = np.zeros((n_epochs*n_training_examples, self.n[-1], self.n[-1]))
+                    self.weight_prod_matrices = np.zeros((n_epochs*n_training_examples, self.n[-1], self.n[-1]))
 
             # create identity matrix
             I = np.eye(self.n[-1])
@@ -909,85 +909,87 @@ class Network:
                             self.full_test_errs[k] = test_err
                             self.quick_test_errs[(k+1)*int(n_training_examples/1000) - 1] = test_err
 
-                    if record_eigvals:
-                        # print the minimum max eigenvalue of (I - J_g*J_f).T * (I - J_g*J_f) from the last 1000 examples
-                        print("Min max Jacobian eigval: {:.4f}. ".format(np.amin(self.max_jacobian_eigvals[max(0, k*n_training_examples + n - 1000):k*n_training_examples + n + 1])), end="")
-                        
-                        # print the number of max eigenvalues of (I - J_g*J_f).T * (I - J_g*J_f) from the last 1000 examples that were smaller than 1
-                        print("# max eigvals < 1: {}. ".format(np.sum(self.max_jacobian_eigvals[max(0, k*n_training_examples + n - 1000):k*n_training_examples + n + 1] < 1)), end="")
+                        # save recording arrays
+                        if save_simulation:
+                            print("Saving...", end="")
+                            if self.last_epoch < 0:
+                                quick_test_errs = self.quick_test_errs[:(k+1)*int(n_training_examples/1000)+1]
+                                if n == n_training_examples - 1:
+                                    full_test_errs = self.full_test_errs[:k+2]
 
-                    if save_simulation:
-                        print("Saving...", end="")
-                        if self.last_epoch < 0:
-                            quick_test_errs = self.quick_test_errs
-                            if n == n_training_examples - 1:
-                                full_test_errs = self.full_test_errs
+                                if record_backprop_angle:
+                                    bp_angles = self.bp_angles[:(k+1)*n_training_examples]
 
-                            if record_backprop_angle:
-                                bp_angles = self.bp_angles
+                                if record_loss:
+                                    losses = self.losses[:(k+1)*n_training_examples]
 
-                            if record_loss:
-                                losses = self.losses
+                                if record_eigvals:
+                                    max_jacobian_eigvals   = self.max_jacobian_eigvals[:(k+1)*n_training_examples]
+                                    max_weight_eigvals     = self.max_weight_eigvals[:(k+1)*n_training_examples+1]
+                                    if record_matrices:
+                                        jacobian_prod_matrices = self.jacobian_prod_matrices[:(k+1)*n_training_examples]
+                                        weight_prod_matrices   = self.weight_prod_matrices[:(k+1)*n_training_examples+1]
+                            else:
+                                quick_test_errs = np.concatenate([self.prev_quick_test_errs, self.quick_test_errs[:(k+1)*int(n_training_examples/1000)]], axis=0)
+                                if n == n_training_examples - 1:
+                                    full_test_errs = np.concatenate([self.prev_full_test_errs, self.full_test_errs[:k+1]], axis=0)
 
-                            if record_eigvals:
-                                max_jacobian_eigvals   = self.max_jacobian_eigvals
-                                max_weight_eigvals     = self.max_weight_eigvals
-                                if record_matrices:
-                                    jacobian_prod_matrices = self.jacobian_prod_matrices
-                                    weight_prod_matrices   = self.weight_prod_matrices
-                        else:
-                            quick_test_errs = np.concatenate([self.prev_quick_test_errs, self.quick_test_errs], axis=0)
-                            if n == n_training_examples - 1:
-                                full_test_errs = np.concatenate([self.prev_full_test_errs, self.full_test_errs], axis=0)
+                                if record_backprop_angle:
+                                    bp_angles = np.concatenate([self.prev_bp_angles, self.bp_angles[:(k+1)*n_training_examples]], axis=0)
 
-                            if record_backprop_angle:
-                                bp_angles = np.concatenate([self.prev_bp_angles, self.bp_angles], axis=0)
+                                if record_loss:
+                                    losses = np.concatenate([self.prev_losses, self.losses[:(k+1)*n_training_examples]], axis=0)
 
-                            if record_loss:
-                                losses = np.concatenate([self.prev_losses, self.losses], axis=0)
+                                if record_eigvals:
+                                    max_jacobian_eigvals   = np.concatenate([self.prev_max_jacobian_eigvals, self.max_jacobian_eigvals[:(k+1)*n_training_examples]], axis=0)
+                                    max_weight_eigvals     = np.concatenate([self.prev_max_weight_eigvals, self.max_weight_eigvals[:(k+1)*n_training_examples]], axis=0)
+                                    if record_matrices:
+                                        jacobian_prod_matrices = np.concatenate([self.prev_jacobian_prod_matrices, self.jacobian_prod_matrices[:(k+1)*n_training_examples]], axis=0)
+                                        weight_prod_matrices   = np.concatenate([self.prev_weight_prod_matrices, self.weight_prod_matrices[:(k+1)*n_training_examples]], axis=0)
 
-                            if record_eigvals:
-                                max_jacobian_eigvals   = np.concatenate([self.prev_max_jacobian_eigvals, self.max_jacobian_eigvals], axis=0)
-                                max_weight_eigvals     = np.concatenate([self.prev_max_weight_eigvals, self.max_weight_eigvals], axis=0)
-                                if record_matrices:
-                                    jacobian_prod_matrices = np.concatenate([self.prev_jacobian_prod_matrices, self.jacobian_prod_matrices], axis=0)
-                                    weight_prod_matrices   = np.concatenate([self.prev_weight_prod_matrices, self.weight_prod_matrices], axis=0)
+                            # save quick test error
+                            np.save(os.path.join(self.simulation_path, "quick_test_errors.npy".format(self.last_epoch)), quick_test_errs)
 
-                        # save quick test error
-                        np.save(os.path.join(self.simulation_path, "quick_test_errors.npy".format(self.last_epoch)), quick_test_errs)
-
-                        with open(os.path.join(self.simulation_path, "quick_test_errors.txt"), 'a') as test_err_file:
-                            line = "%.10f" % test_err
-                            print(line, file=test_err_file)
-
-                        if n == n_training_examples - 1:
-                            # save test error
-                            np.save(os.path.join(self.simulation_path, "full_test_errors.npy"), full_test_errs)
-
-                            with open(os.path.join(self.simulation_path, "full_test_errors.txt"), 'a') as test_err_file:
+                            with open(os.path.join(self.simulation_path, "quick_test_errors.txt"), 'a') as test_err_file:
                                 line = "%.10f" % test_err
                                 print(line, file=test_err_file)
 
-                            # save weights
-                            self.save_weights(self.simulation_path, prefix="epoch_{}_".format(self.last_epoch + 1 + k))
+                            if n == n_training_examples - 1:
+                                # save test error
+                                np.save(os.path.join(self.simulation_path, "full_test_errors.npy"), full_test_errs)
 
-                        if record_backprop_angle:
-                            if self.M > 1:
-                                # save backprop angles
-                                np.save(os.path.join(self.simulation_path, "bp_angles.npy"), bp_angles)
+                                with open(os.path.join(self.simulation_path, "full_test_errors.txt"), 'a') as test_err_file:
+                                    line = "%.10f" % test_err
+                                    print(line, file=test_err_file)
 
-                        if record_loss:
-                            np.save(os.path.join(self.simulation_path, "final_layer_loss.npy"), losses)
+                                # save weights
+                                self.save_weights(self.simulation_path, prefix="epoch_{}_".format(self.last_epoch + 1 + k))
 
-                        if record_eigvals:
-                            # save eigenvalues
-                            np.save(os.path.join(self.simulation_path, "max_jacobian_eigvals.npy"), max_jacobian_eigvals)
-                            np.save(os.path.join(self.simulation_path, "max_weight_eigvals.npy"), max_weight_eigvals)
-                            if record_matrices:
-                                np.save(os.path.join(self.simulation_path, "jacobian_prod_matrices.npy"), jacobian_prod_matrices)
-                                np.save(os.path.join(self.simulation_path, "weight_prod_matrices.npy"), weight_prod_matrices)
+                            if record_backprop_angle:
+                                if self.M > 1:
+                                    # save backprop angles
+                                    np.save(os.path.join(self.simulation_path, "bp_angles.npy"), bp_angles)
+
+                            if record_loss:
+                                np.save(os.path.join(self.simulation_path, "final_layer_loss.npy"), losses)
+
+                            if record_eigvals:
+                                # save eigenvalues
+                                np.save(os.path.join(self.simulation_path, "max_jacobian_eigvals.npy"), max_jacobian_eigvals)
+                                np.save(os.path.join(self.simulation_path, "max_weight_eigvals.npy"), max_weight_eigvals)
+                                if record_matrices:
+                                    np.save(os.path.join(self.simulation_path, "jacobian_prod_matrices.npy"), jacobian_prod_matrices)
+                                    np.save(os.path.join(self.simulation_path, "weight_prod_matrices.npy"), weight_prod_matrices)
+                            
+                            print("done. ", end="")
+
+                    if record_eigvals:
+                        # print the minimum max eigenvalue of (I - J_g*J_f).T * (I - J_g*J_f) from the last 1000 examples
+                        print("Min max Jacobian eigval: {:.4f}. ".format(np.amin(self.max_jacobian_eigvals[max(0, k*n_training_examples + n - 999):k*n_training_examples + n + 1])), end="")
                         
-                        print("done. ", end="")
+                        # print the number of max eigenvalues of (I - J_g*J_f).T * (I - J_g*J_f) from the last 1000 examples that were smaller than 1
+                        print("# max eigvals < 1: {}. ".format(np.sum(self.max_jacobian_eigvals[max(0, k*n_training_examples + n - 999):k*n_training_examples + n + 1] < 1)), end="")
+
                     # get end time & reset start time
                     end_time = time.time()
                     time_elapsed = end_time - start_time
