@@ -590,7 +590,7 @@ class Network:
             # make simulation directory
             if not os.path.exists(self.simulation_path):
                 os.makedirs(self.simulation_path)
-            elif last_epoch < 0:
+            elif self.last_epoch < 0:
                 print("Error: Simulation directory \"{}\" already exists.".format(self.simulation_path))
                 return
 
