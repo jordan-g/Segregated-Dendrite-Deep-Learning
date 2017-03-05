@@ -590,6 +590,9 @@ class Network:
             # make simulation directory
             if not os.path.exists(self.simulation_path):
                 os.makedirs(self.simulation_path)
+            elif last_epoch < 0:
+                print("Error: Simulation directory \"{}\" already exists.".format(self.simulation_path))
+                return
 
             # copy current script to simulation directory
             filename = os.path.basename(__file__)
@@ -887,7 +890,7 @@ class Network:
                 if (n+1) % 1000 == 0:
                     print("")
                     if n != n_training_examples - 1:
-                        # we're partway through an epoch; do a full weight test
+                        # we're partway through an epoch; do a quick weight test
                         test_err = self.test_weights(n_test=n_quick_test)
 
                         sys.stdout.write("\x1b[2K\rQE: {0:05.2f}%. ".format(test_err))
@@ -896,6 +899,11 @@ class Network:
                             self.quick_test_errs[(k+1)*int(n_training_examples/1000)] = test_err
                         else:
                             self.quick_test_errs[(k+1)*int(n_training_examples/1000) - 1] = test_err
+
+                        if save_simulation:
+                            with open(os.path.join(self.simulation_path, "quick_test_errors.txt"), 'a') as test_err_file:
+                                line = "%.10f" % test_err
+                                print(line, file=test_err_file)
                     else:
                         # we've reached the end of an epoch; do a full weight test
                         test_err = self.test_weights(n_test=n_full_test)
@@ -908,6 +916,11 @@ class Network:
                         else:
                             self.full_test_errs[k] = test_err
                             self.quick_test_errs[(k+1)*int(n_training_examples/1000) - 1] = test_err
+
+                        if save_simulation:
+                            with open(os.path.join(self.simulation_path, "full_test_errors.txt"), 'a') as test_err_file:
+                                line = "%.10f" % test_err
+                                print(line, file=test_err_file)
 
                         # save recording arrays
                         if save_simulation:
@@ -950,17 +963,9 @@ class Network:
                             # save quick test error
                             np.save(os.path.join(self.simulation_path, "quick_test_errors.npy".format(self.last_epoch)), quick_test_errs)
 
-                            with open(os.path.join(self.simulation_path, "quick_test_errors.txt"), 'a') as test_err_file:
-                                line = "%.10f" % test_err
-                                print(line, file=test_err_file)
-
                             if n == n_training_examples - 1:
                                 # save test error
                                 np.save(os.path.join(self.simulation_path, "full_test_errors.npy"), full_test_errs)
-
-                                with open(os.path.join(self.simulation_path, "full_test_errors.txt"), 'a') as test_err_file:
-                                    line = "%.10f" % test_err
-                                    print(line, file=test_err_file)
 
                                 # save weights
                                 self.save_weights(self.simulation_path, prefix="epoch_{}_".format(self.last_epoch + 1 + k))
