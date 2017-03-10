@@ -51,6 +51,7 @@ use_weight_optimization = False # attempt to optimize initial weights (better wi
 
 record_backprop_angle   = True  # record angle b/w hidden layer error signals and backprop-generated error signals
 record_loss             = True  # record final layer loss during training
+record_training_error   = True  # record training error during training
 
 # --- Jacobian testing --- #
 record_eigvals          = False # record maximum eigenvalues for Jacobians
@@ -188,8 +189,8 @@ class Network:
             if use_weight_optimization:
                 # calculate weight variables needed to get desired average & strandard deviations of somatic potentials
                 W_avg = (V_avg - b_avg)/(nu*N*V_avg)
-                W_sm = (V_sm + (nu**2)*(N - N**2)*(W_avg**2)*(V_avg**2) - 2*N*nu*b_avg*V_avg*W_avg - (b_avg**2))/(N*(nu**2)*V_sm)
-                W_sd = np.sqrt(W_sm - W_avg**2)
+                W_sm  = (V_sm + (nu**2)*(N - N**2)*(W_avg**2)*(V_avg**2) - 2*N*nu*b_avg*V_avg*W_avg - (b_avg**2))/(N*(nu**2)*V_sm)
+                W_sd  = np.sqrt(W_sm - W_avg**2)
             
                 self.W[m] = W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], N)) - 0.5)
                 self.b[m] = b_avg + 3.465*b_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
@@ -202,22 +203,23 @@ class Network:
                 if use_broadcast:
                     if use_weight_optimization:
                         self.Y[m-1] = np.dot(3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5), self.Y[m])
-                        self.c[m-1] = np.dot(self.Y[m-1], 3.465*W_sd*(np.random.uniform(size=(self.n[-1], 1)) - 0.5))
+                        self.c[m-1] = 0.0*np.dot(self.Y[m-1], 3.465*W_sd*(np.random.uniform(size=(self.n[-1], 1)) - 0.5))
                     else:
                         self.Y[m-1] = (np.random.uniform(size=(N, self.n[-1])) - 0.5)
-                        self.c[m-1] = (np.random.uniform(size=(N, 1)) - 0.5)
+                        self.c[m-1] = 0.0*(np.random.uniform(size=(N, 1)) - 0.5)
                 else:
                     if use_weight_optimization:
                          self.Y[m-1] = W_avg + 3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5)
-                         self.c[m-1] = W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
+                         self.c[m-1] = 0.0*(W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5))
                     else:
                         self.Y[m-1] = (np.random.uniform(size=(N, self.n[m])) - 0.5)
-                        self.c[m-1] = (np.random.uniform(size=(self.n[m], 1)) - 0.5)
+                        self.c[m-1] = 0.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
 
             print("Layer {0} -- {1} units.".format(m, self.n[m]))
             print("\tW_avg: {0:.6f},\tW_sd: {1:.6f},\n".format(np.mean(self.W[m]), np.std(self.W[m]))
                 + "\tb_avg: {0:.6f},\tb_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
-                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f}.".format(np.mean(self.Y[m]), np.std(self.Y[m])))
+                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f},\n".format(np.mean(self.Y[m]), np.std(self.Y[m]))
+                + "\tc_avg: {0:.6f},\tc_sd: {1:.6f}.".format(np.mean(self.c[m]), np.std(self.c[m])))
         print("--------------------------------\n")
 
         if use_symmetric_weights:
@@ -555,7 +557,7 @@ class Network:
                 with open(os.path.join(self.simulation_path, 'C_hist_{}.csv'.format(m)), 'a') as C_hist_file:
                     np.savetxt(C_hist_file, self.C_hists[m])
 
-    def train(self, f_etas, b_etas, n_epochs, n_training_examples, save_simulation, simulations_folder=default_simulations_folder, folder_name="", exp_notes=None, record_voltages=False, last_epoch=-1):
+    def train(self, f_etas, b_etas, n_epochs, n_training_examples, save_simulation, simulations_folder=default_simulations_folder, folder_name="", overwrite=False, exp_notes=None, record_voltages=False, last_epoch=-1):
         print("Starting training.\n")
 
         if self.last_epoch == None:
@@ -586,13 +588,16 @@ class Network:
                                                                                  sim_start_time.minute))
             else:
                 self.simulation_path = os.path.join(simulations_folder, folder_name)
-            
+
             # make simulation directory
             if not os.path.exists(self.simulation_path):
                 os.makedirs(self.simulation_path)
-            elif self.last_epoch < 0:
+            elif self.last_epoch < 0 and overwrite == False:
                 print("Error: Simulation directory \"{}\" already exists.".format(self.simulation_path))
                 return
+            else:
+                shutil.rmtree(self.simulation_path, ignore_errors=True)
+                os.makedirs(self.simulation_path)
 
             # copy current script to simulation directory
             filename = os.path.basename(__file__)
@@ -786,6 +791,9 @@ class Network:
             ax3 = fig.add_subplot(312)
             plt.show(block=False)
 
+        if record_training_error:
+            num_correct = 0
+
         for k in xrange(n_epochs):
             # shuffle the training data
             self.x_train, self.t_train = shuffle_arrays(self.x_train, self.t_train)
@@ -818,6 +826,17 @@ class Network:
 
                 # do forward & target phases
                 self.f_phase(self.x, None, training=True, record_voltages=record_voltages)
+
+                if record_training_error:
+                    sel_num = np.argmax(np.mean(self.l[-1].average_C_f.reshape(-1, self.n_neurons_per_category), axis=-1))
+
+                    # get the target number from testing example data
+                    target_num = np.dot(np.arange(10), self.t)
+
+                    # increment correct classification counter if they match
+                    if sel_num == target_num:
+                        num_correct += 1
+
                 self.t_phase(self.x, self.t.repeat(self.n_neurons_per_category, axis=0), training=True, record_voltages=record_voltages, upd_b_weights=update_backward_weights)
 
                 if record_loss:
@@ -863,14 +882,14 @@ class Network:
 
                 if (n+1) % 100 == 0:
                     if record_eigvals and plot_eigvals:
-                        max_inds = np.argsort(self.max_jacobian_eigvals[k*n_training_examples + n -100:k*n_training_examples + n])
-                        max_ind = np.argmax(self.max_jacobian_eigvals[k*n_training_examples + n-100:k*n_training_examples + n])
-                        min_ind = np.argmin(self.max_jacobian_eigvals[k*n_training_examples + n-100:k*n_training_examples + n])
-                        n_small = np.sum(self.max_jacobian_eigvals[k*n_training_examples + n-100:k*n_training_examples + n] < 1)
+                        max_inds = np.argsort(self.max_jacobian_eigvals[k*n_training_examples + n -99:k*n_training_examples + n + 1])
+                        max_ind = np.argmax(self.max_jacobian_eigvals[k*n_training_examples + n-99:k*n_training_examples + n + 1])
+                        min_ind = np.argmin(self.max_jacobian_eigvals[k*n_training_examples + n-99:k*n_training_examples + n + 1])
+                        n_small = np.sum(self.max_jacobian_eigvals[k*n_training_examples + n-99:k*n_training_examples + n + 1] < 1)
             
                         # update plots
                         if record_matrices:
-                            A = np.mean(np.array([self.jacobian_prod_matrices[k*n_training_examples + n-100:k*n_training_examples + n][i] for i in max_inds][:-10]), axis=0)
+                            A = np.mean(np.array([self.jacobian_prod_matrices[k*n_training_examples + n-99:k*n_training_examples + n + 1][i] for i in max_inds][:-10]), axis=0)
                             im_plot.set_data(A)
 
                         if record_loss:
@@ -921,6 +940,14 @@ class Network:
                             with open(os.path.join(self.simulation_path, "full_test_errors.txt"), 'a') as test_err_file:
                                 line = "%.10f" % test_err
                                 print(line, file=test_err_file)
+
+                        if record_training_error:
+                            # calculate percent training error for this epoch
+                            err_rate = (1.0 - float(num_correct)/n_training_examples)*100.0
+
+                            print("TE: {0:05.2f}%. ".format(err_rate), end="")
+
+                            num_correct = 0
 
                         # save recording arrays
                         if save_simulation:
