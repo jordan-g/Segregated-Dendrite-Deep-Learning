@@ -707,6 +707,9 @@ class Network:
         if record_loss:
             self.losses = np.zeros(n_epochs*n_training_examples)
 
+        if record_training_error:
+            self.training_errors = np.zeros(n_epochs)
+
         if record_eigvals:
             # initialize arrays for Jacobian testing
             self.max_jacobian_eigvals = np.zeros(n_epochs*n_training_examples)
@@ -944,6 +947,7 @@ class Network:
                         if record_training_error:
                             # calculate percent training error for this epoch
                             err_rate = (1.0 - float(num_correct)/n_training_examples)*100.0
+                            self.training_errors[k] = err_rate
 
                             print("TE: {0:05.2f}%. ".format(err_rate), end="")
 
@@ -954,14 +958,16 @@ class Network:
                             print("Saving...", end="")
                             if self.last_epoch < 0:
                                 quick_test_errs = self.quick_test_errs[:(k+1)*int(n_training_examples/1000)+1]
-                                if n == n_training_examples - 1:
-                                    full_test_errs = self.full_test_errs[:k+2]
+                                full_test_errs  = self.full_test_errs[:k+2]
 
                                 if record_backprop_angle:
                                     bp_angles = self.bp_angles[:(k+1)*n_training_examples]
 
                                 if record_loss:
                                     losses = self.losses[:(k+1)*n_training_examples]
+
+                                if record_training_error:
+                                    training_errors = self.training_errors[:k+1]
 
                                 if record_eigvals:
                                     max_jacobian_eigvals   = self.max_jacobian_eigvals[:(k+1)*n_training_examples]
@@ -979,6 +985,9 @@ class Network:
 
                                 if record_loss:
                                     losses = np.concatenate([self.prev_losses, self.losses[:(k+1)*n_training_examples]], axis=0)
+
+                                if record_training_error:
+                                    training_errors = np.concatenate([self.prev_training_errors, self.training_errors[:k+1]], axis=0)
 
                                 if record_eigvals:
                                     max_jacobian_eigvals   = np.concatenate([self.prev_max_jacobian_eigvals, self.max_jacobian_eigvals[:(k+1)*n_training_examples]], axis=0)
@@ -1004,6 +1013,9 @@ class Network:
 
                             if record_loss:
                                 np.save(os.path.join(self.simulation_path, "final_layer_loss.npy"), losses)
+
+                            if record_training_error:
+                                np.save(os.path.join(self.simulation_path, "training_errors.npy"), training_errors)
 
                             if record_eigvals:
                                 # save eigenvalues
