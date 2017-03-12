@@ -215,16 +215,17 @@ class Network:
                         self.Y[m-1] = (np.random.uniform(size=(N, self.n[m])) - 0.5)
                         self.c[m-1] = 0.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
 
+        if use_symmetric_weights == True:
+            # enforce symmetric weights
+            self.make_weights_symmetric()
+
+        for m in xrange(self.M-1, -1, -1):
             print("Layer {0} -- {1} units.".format(m, self.n[m]))
             print("\tW_avg: {0:.6f},\tW_sd: {1:.6f},\n".format(np.mean(self.W[m]), np.std(self.W[m]))
                 + "\tb_avg: {0:.6f},\tb_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
                 + "\tY_avg: {0:.6f},\tY_sd: {1:.6f},\n".format(np.mean(self.Y[m]), np.std(self.Y[m]))
                 + "\tc_avg: {0:.6f},\tc_sd: {1:.6f}.".format(np.mean(self.c[m]), np.std(self.c[m])))
         print("--------------------------------\n")
-
-        if use_symmetric_weights:
-            # enforce symmetric weights
-            self.make_weights_symmetric()
 
         if use_sparse_feedback:
             # randomly zero out 80% of weights, increase magnitude of surviving weights to keep desired average voltages
@@ -873,7 +874,7 @@ class Network:
                             fig.colorbar(im_plot, ax=ax1)
                         if record_loss:
                             loss_plot, = ax2.plot(np.arange(1), self.losses[0])
-                        max_jacobian_plot, = ax3.plot(np.arange(1), self.max_jacobian_eigvals[0])
+                        max_jacobian_plot, = ax3.plot(np.arange(1), self.max_jacobian_eigvals[0], '.')
                         fig.canvas.draw()
                         fig.canvas.flush_events()
 
