@@ -1,3 +1,4 @@
+# encoding=utf8
 '''
 Code for simulations presented in
 "Deep learning with segregated dendrites"
