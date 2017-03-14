@@ -48,7 +48,7 @@ use_sparse_feedback     = False # use sparse feedback weights
 update_backward_weights = False # update backward weights
 use_backprop            = False # use error backpropagation
 use_apical_conductance  = False # use attenuated conductance from apical dendrite to soma
-use_weight_optimization = False # attempt to optimize initial weights (better without currently)
+use_weight_optimization = True  # attempt to optimize initial weights
 
 record_backprop_angle   = True  # record angle b/w hidden layer error signals and backprop-generated error signals
 record_loss             = True  # record final layer loss during training
@@ -536,7 +536,7 @@ class Network:
                     self.l[m].average_PSP_A_f *= 0
                     self.l[m].average_PSP_A_t *= 0
 
-        if use_symmetric_weights and (noisy_symmetric_weights or use_sparse_feedback):
+        if use_symmetric_weights:
             # make feedback weights symmetric to new feedforward weights
             self.make_weights_symmetric()
 
