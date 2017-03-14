@@ -53,6 +53,7 @@ use_weight_optimization = True  # attempt to optimize initial weights
 record_backprop_angle   = True  # record angle b/w hidden layer error signals and backprop-generated error signals
 record_loss             = True  # record final layer loss during training
 record_training_error   = True  # record training error during training
+record_training_labels  = True  # record labels of images that were shown during training
 
 # --- Jacobian testing --- #
 record_eigvals          = False # record maximum eigenvalues for Jacobians
@@ -494,7 +495,7 @@ class Network:
 
         if record_eigvals:
             self.J_beta  = np.multiply(deriv_phi(self.l[-1].average_C_f), k_D*self.W[-1])
-            self.J_gamma = np.multiply(deriv_alpha(np.dot(self.Y[-2], self.l[-1].average_phi_C_f) + self.c[-2]), self.Y[-2])
+            self.J_gamma = np.multiply(deriv_alpha(np.dot(self.Y[-2], phi(self.l[-1].average_C_f)) + self.c[-2]), self.Y[-2])
 
         if record_loss:
             self.loss = ((self.l[-1].average_phi_C_t - phi(self.l[-1].average_C_f)) ** 2).mean()
@@ -681,6 +682,9 @@ class Network:
                 if record_loss:
                     self.prev_losses = np.load(os.path.join(self.simulation_path, "final_layer_loss.npy"))
 
+                if record_training_labels:
+                    self.prev_training_labels = np.load(os.path.join(self.simulation_path, "training_labels.npy"))
+
                 if record_eigvals:
                     self.prev_max_jacobian_eigvals   = np.load(os.path.join(self.simulation_path, "max_jacobian_eigvals.npy"))
                     self.prev_max_weight_eigvals     = np.load(os.path.join(self.simulation_path, "max_weight_eigvals.npy"))
@@ -711,6 +715,9 @@ class Network:
 
         if record_training_error:
             self.training_errors = np.zeros(n_epochs)
+
+        if record_training_labels:
+            self.training_labels = np.zeros(n_epochs*n_training_examples)
 
         if record_eigvals:
             # initialize arrays for Jacobian testing
@@ -847,6 +854,9 @@ class Network:
                 if record_loss:
                     self.losses[k*n_training_examples + n] = self.loss
 
+                if record_training_labels:
+                    self.training_labels[k*n_training_examples + n] = np.dot(np.arange(10), self.t)
+
                 if record_eigvals:
                     # get max eigenvalues for jacobians
                     U = np.dot(self.J_beta, self.J_gamma)
@@ -912,7 +922,6 @@ class Network:
                         fig.canvas.flush_events()
 
                 if (n+1) % 1000 == 0:
-                    print("")
                     if n != n_training_examples - 1:
                         # we're partway through an epoch; do a quick weight test
                         test_err = self.test_weights(n_test=n_quick_test)
@@ -968,6 +977,9 @@ class Network:
                                 if record_loss:
                                     losses = self.losses[:(k+1)*n_training_examples]
 
+                                if record_training_labels:
+                                    training_labels = self.training_labels[:(k+1)*n_training_examples]
+
                                 if record_training_error:
                                     training_errors = self.training_errors[:k+1]
 
@@ -987,6 +999,9 @@ class Network:
 
                                 if record_loss:
                                     losses = np.concatenate([self.prev_losses, self.losses[:(k+1)*n_training_examples]], axis=0)
+
+                                if record_training_labels:
+                                    training_labels = np.concatenate([self.prev_training_labels, self.training_labels[:(k+1)*n_training_examples]], axis=0)
 
                                 if record_training_error:
                                     training_errors = np.concatenate([self.prev_training_errors, self.training_errors[:k+1]], axis=0)
@@ -1015,6 +1030,9 @@ class Network:
 
                             if record_loss:
                                 np.save(os.path.join(self.simulation_path, "final_layer_loss.npy"), losses)
+
+                            if record_training_labels:
+                                np.save(os.path.join(self.simulation_path, "training_labels.npy"), training_labels)
 
                             if record_training_error:
                                 np.save(os.path.join(self.simulation_path, "training_errors.npy"), training_errors)
