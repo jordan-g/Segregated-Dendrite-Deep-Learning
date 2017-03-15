@@ -64,7 +64,7 @@ default_simulations_folder = 'Simulations/' # folder in which to save simulation
 weight_cmap                = 'bone'         # color map to use for weight plotting
 
 dt  = 1.0         # time step (ms)
-mem = int(15/dt)  # spike memory (time steps) - used to limit PSP integration of past spikes (for performance)
+mem = int(10/dt)  # spike memory (time steps) - used to limit PSP integration of past spikes (for performance)
 
 l_f_phase      = int(50/dt)  # length of forward phase (time steps)
 l_t_phase      = int(50/dt)  # length of target phase (time steps)
@@ -494,8 +494,12 @@ class Network:
                     self.C_hists[m][time, :] = self.l[m].C[:, 0]
 
         if record_eigvals:
-            self.J_beta  = np.multiply(deriv_phi(self.l[-1].average_C_f), k_D*self.W[-1])
-            self.J_gamma = np.multiply(deriv_alpha(np.dot(self.Y[-2], phi(self.l[-1].average_C_f)) + self.c[-2]), self.Y[-2])
+            # calculate Jacobians & update lists of last 100 Jacobians
+            if len(self.J_betas) >= 100:
+                self.J_betas = self.J_betas[1:]
+                self.J_gammas = self.J_gammas[1:]
+            self.J_betas.append(np.multiply(deriv_phi(self.l[-1].average_C_f), k_D*self.W[-1]))
+            self.J_gammas.append(np.multiply(deriv_alpha(np.dot(self.Y[-2], phi(self.l[-1].average_C_f)) + self.c[-2]), self.Y[-2]))
 
         if record_loss:
             self.loss = ((self.l[-1].average_phi_C_t - phi(self.l[-1].average_C_f)) ** 2).mean()
@@ -746,6 +750,10 @@ class Network:
                     self.weight_prod_matrices[0] = U
                 self.max_weight_eigvals[0] = np.amax(np.real(np.linalg.eigvals(p)))
 
+            # initialize lists for storing last 100 Jacobians
+            self.J_betas = []
+            self.J_gammas = []
+
         if record_backprop_angle:
             # initialize backprop angles recording array
             if self.M > 1:
@@ -859,7 +867,9 @@ class Network:
 
                 if record_eigvals:
                     # get max eigenvalues for jacobians
-                    U = np.dot(self.J_beta, self.J_gamma)
+                    # U = np.dot(np.mean(np.array(self.J_betas), axis=0), np.mean(np.array(self.J_gammas), axis=0)) # product of mean of last 100 Jacobians
+                    U = np.mean(np.array([ np.dot(self.J_betas[i], self.J_gammas[i]) for i in range(len(self.J_betas)) ]), axis=0) # mean of product of last 100 Jacobians
+                    
                     p = np.dot((I - U).T, I - U)
                     if record_matrices:
                         self.jacobian_prod_matrices[k*n_training_examples + n] = U
@@ -926,7 +936,7 @@ class Network:
                         # we're partway through an epoch; do a quick weight test
                         test_err = self.test_weights(n_test=n_quick_test)
 
-                        sys.stdout.write("\x1b[2K\rQE: {0:05.2f}%. ".format(test_err))
+                        sys.stdout.write("\x1b[2K\rEpoch {0}, example {1}/{2}., example QE: {3:05.2f}%. ".format(self.last_epoch + 1 + k, n+1, n_training_examples, test_err))
 
                         if self.last_epoch < 0:
                             self.quick_test_errs[(k+1)*int(n_training_examples/1000)] = test_err
