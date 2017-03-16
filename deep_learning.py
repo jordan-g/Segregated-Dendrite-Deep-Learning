@@ -936,7 +936,7 @@ class Network:
                         # we're partway through an epoch; do a quick weight test
                         test_err = self.test_weights(n_test=n_quick_test)
 
-                        sys.stdout.write("\x1b[2K\rEpoch {0}, example {1}/{2}., example QE: {3:05.2f}%. ".format(self.last_epoch + 1 + k, n+1, n_training_examples, test_err))
+                        sys.stdout.write("\x1b[2K\rEpoch {0}, example {1}/{2}. QE: {3:05.2f}%. ".format(self.last_epoch + 1 + k, n+1, n_training_examples, test_err))
 
                         if self.last_epoch < 0:
                             self.quick_test_errs[(k+1)*int(n_training_examples/1000)] = test_err
