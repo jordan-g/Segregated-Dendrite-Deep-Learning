@@ -63,13 +63,12 @@ default_simulations_folder = 'Simulations/' # folder in which to save simulation
 weight_cmap                = 'bone'         # color map to use for weight plotting
 
 dt               = 1.0        # time step (ms)
-mem              = int(15/dt) # spike memory (time steps) - used to limit PSP integration of past spikes (for performance)
+mem              = int(10/dt) # spike memory (time steps) - used to limit PSP integration of past spikes (for performance)
 integration_time = int(30/dt) # time steps of integration of neuronal variables used for plasticity
 
 l_f_phase      = int(50/dt)  # length of forward phase (time steps)
 l_t_phase      = int(50/dt)  # length of target phase (time steps)
 l_f_phase_test = int(250/dt) # length of forward phase for tests (time steps)
-settle_dur     = int(30/dt)  # duration to wait before starting to accumulate averages (time steps)
 
 if use_rand_phase_lengths:
     min_l_f_phase = l_f_phase
@@ -619,7 +618,7 @@ class Network:
                 'l_f_phase'              : l_f_phase,
                 'l_t_phase'              : l_t_phase,
                 'l_f_phase_test'         : l_f_phase_test,
-                'settle_dur'             : settle_dur,
+                'integration_time'       : integration_time,
                 'phi_max'                : phi_max,
                 'tau_s'                  : tau_s,
                 'tau_L'                  : tau_L,
@@ -1462,7 +1461,7 @@ def load_simulation(last_epoch, folder_name, simulations_folder=default_simulati
     global use_sparse_feedback, update_backward_weights, use_backprop, use_apical_conductance, use_weight_optimization
     global record_backprop_angle, record_loss, record_eigvals, record_matrices, plot_eigvals
     global dt, mem
-    global l_f_phase, l_t_phase, l_f_phase_test, settle_dur
+    global l_f_phase, l_t_phase, l_f_phase_test, integration_time
     global phi_max
     global tau_s, tau_L
     global g_B, g_A, g_L, g_D
@@ -1492,7 +1491,7 @@ def load_simulation(last_epoch, folder_name, simulations_folder=default_simulati
     l_f_phase               = params['l_f_phase']
     l_t_phase               = params['l_t_phase']
     l_f_phase_test          = params['l_f_phase_test']
-    settle_dur              = params['settle_dur']
+    integration_time        = params['integration_time']
     phi_max                 = params['phi_max']
     tau_s                   = params['tau_s']
     tau_L                   = params['tau_L']
