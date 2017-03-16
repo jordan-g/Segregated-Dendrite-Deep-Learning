@@ -13,7 +13,6 @@ Institution: University of Toronto Scarborough
 from __future__ import print_function
 import numpy as np
 import matplotlib
-matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gs
 import copy
@@ -55,6 +54,7 @@ record_backprop_angle   = True  # record angle b/w hidden layer error signals an
 record_loss             = True  # record final layer loss during training
 record_training_error   = True  # record training error during training
 record_training_labels  = True  # record labels of images that were shown during training
+record_burst_times      = False # record burst firing times for each neuron across training
 
 # --- Jacobian testing --- #
 record_eigvals          = False # record maximum eigenvalues for Jacobians
@@ -66,7 +66,7 @@ weight_cmap                = 'bone'         # color map to use for weight plotti
 
 dt               = 1.0        # time step (ms)
 mem              = int(10/dt) # spike memory (time steps) - used to limit PSP integration of past spikes (for performance)
-integration_time = int(30/dt) # time steps of integration of neuronal variables used for plasticity
+integration_time = int(20/dt) # time steps of integration of neuronal variables used for plasticity
 
 l_f_phase      = int(50/dt)  # length of forward phase (time steps)
 l_t_phase      = int(50/dt)  # length of target phase (time steps)
@@ -424,8 +424,7 @@ class Network:
 
         for time in xrange(l_f_phase):
             # update input spike history
-            self.x_hist = np.roll(self.x_hist, -1, axis=-1)
-            self.x_hist[:, -1] = np.random.poisson(x[:, 0])
+            self.x_hist = np.concatenate([self.x_hist[:, 1:], np.random.poisson(x)], axis=-1)
 
             # calculate averages at the end of the forward phase
             calc_averages = time == l_f_phase - 1
@@ -460,7 +459,7 @@ class Network:
                 with open(os.path.join(self.simulation_path, 'C_hist_{}.csv'.format(m)), 'a') as C_hist_file:
                     np.savetxt(C_hist_file, self.C_hists[m])
 
-    def t_phase(self, x, t, training=False, record_voltages=False, upd_b_weights=False):
+    def t_phase(self, x, t, training_example_index, training=False, record_voltages=False, upd_b_weights=False):
         if record_voltages:
             # initialize voltage arrays
             self.A_hists = [ np.zeros((l_t_phase, self.l[m].size)) for m in xrange(self.M-1)]
@@ -472,17 +471,16 @@ class Network:
 
         for time in xrange(l_t_phase):
             # update input history
-            self.x_hist = np.roll(self.x_hist, -1, axis=-1)
-            self.x_hist[:, -1] = np.random.poisson(x[:, 0])
+            self.x_hist = np.concatenate([self.x_hist[:, 1:], np.random.poisson(x)], axis=-1)
 
             # calculate averages at the end of the target phase
-            calc_averages = time == l_f_phase - 1
+            calc_averages = time == l_t_phase - 1
 
             # do a target pass
             self.out_t(training=training, calc_averages=calc_averages)
 
             for m in xrange(self.M-1, -1, -1):
-                burst_indices = np.nonzero(time == self.burst_times[m])
+                burst_indices = np.nonzero(time == self.burst_times[m][training_example_index])
 
                 # update weights
                 self.l[m].update_W(burst_indices=burst_indices)
@@ -554,8 +552,8 @@ class Network:
         if use_rand_phase_lengths:
             # generate phase lengths for all training examples
             global l_f_phase, l_t_phase
-            l_f_phases = min_l_f_phase + np.random.wald(2, 1, n_epochs*n_training_examples)
-            l_t_phases = min_l_t_phase + np.random.wald(2, 1, n_epochs*n_training_examples)
+            l_f_phases = min_l_f_phase + np.random.wald(2, 1, n_epochs*n_training_examples).astype(int)
+            l_t_phases = min_l_t_phase + np.random.wald(2, 1, n_epochs*n_training_examples).astype(int)
         else:
             l_f_phases = np.zeros(n_epochs*n_training_examples) + l_f_phase
             l_t_phases = np.zeros(n_epochs*n_training_examples) + l_t_phase
@@ -674,6 +672,9 @@ class Network:
 
                 if record_training_labels:
                     self.prev_training_labels = np.load(os.path.join(self.simulation_path, "training_labels.npy"))
+
+                if record_burst_times:
+                    self.prev_burst_times_full = [ np.load(os.path.join(self.simulation_path, "burst_times_{}.npy".format(m))) for m in range(self.M)]
 
                 if record_eigvals:
                     self.prev_max_jacobian_eigvals   = np.load(os.path.join(self.simulation_path, "max_jacobian_eigvals.npy"))
@@ -804,6 +805,12 @@ class Network:
             # shuffle the training data
             self.x_train, self.t_train = shuffle_arrays(self.x_train, self.t_train)
 
+            # generate arrays of burst times (time until burst from start of target phase) for individual neurons
+            if use_rand_burst_times:
+                self.burst_times = [ np.zeros((n_training_examples, self.n[m])) + l_t_phases[k*n_training_examples:(k+1)*n_training_examples, np.newaxis] - 1 - np.minimum(np.abs(np.random.normal(0, 5, size=(n_training_examples, self.n[m])).astype(int)), 15) for m in range(self.M) ]
+            else:
+                self.burst_times = [ np.zeros((n_training_examples, self.n[m])) + l_t_phases[k*n_training_examples:(k+1)*n_training_examples, np.newaxis] - 1 for m in range(self.M) ]
+
             for n in xrange(n_training_examples):
                 # set start time
                 if start_time == None:
@@ -815,11 +822,11 @@ class Network:
 
                 l_phases_tot = l_f_phase + l_t_phase
 
-                # generate arrays of burst times for individual neurons
-                if use_rand_burst_times:
-                    self.burst_times = [ np.zeros(self.n[m]) + l_t_phase - 1 + np.random.uniform(-10, 0, size=(self.n[m])).astype(int) for m in range(self.M) ]
-                else:
-                    self.burst_times = [ np.zeros(self.n[m]) + l_t_phase - 1 for m in range(self.M) ]
+                # get burst times from the beginning of the simulation
+                if record_burst_times:
+                    total_time_to_target_phase = np.sum(l_f_phases[:k*n_training_examples + n + 1]) + np.sum(l_t_phases[:k*n_training_examples + n])
+                    for m in range(self.M):
+                        self.burst_times_full[m][k*n_training_examples + n] = total_time_to_target_phase + self.burst_times[n, m]
 
                 # print every 100 examples
                 if (n+1) % 100 == 0:
@@ -849,7 +856,7 @@ class Network:
                     if sel_num == target_num:
                         num_correct += 1
 
-                self.t_phase(self.x, self.t.repeat(self.n_neurons_per_category, axis=0), training=True, record_voltages=record_voltages, upd_b_weights=update_backward_weights)
+                self.t_phase(self.x, self.t.repeat(self.n_neurons_per_category, axis=0), n, training=True, record_voltages=record_voltages, upd_b_weights=update_backward_weights)
 
                 if record_loss:
                     self.losses[k*n_training_examples + n] = self.loss
@@ -897,31 +904,30 @@ class Network:
                         bp_angle = np.arccos(np.sum(self.l[0].delta_b_bp * self.l[0].delta_b) / (np.linalg.norm(self.l[0].delta_b_bp)*np.linalg.norm(self.l[0].delta_b.T)))*180.0/np.pi
                         self.bp_angles[k*n_training_examples + n] = bp_angle
 
-                if (n+1) % 100 == 0:
-                    if record_eigvals and plot_eigvals:
-                        max_inds = np.argsort(self.max_jacobian_eigvals[k*n_training_examples + n -99:k*n_training_examples + n + 1])
-                        max_ind = np.argmax(self.max_jacobian_eigvals[k*n_training_examples + n-99:k*n_training_examples + n + 1])
-                        min_ind = np.argmin(self.max_jacobian_eigvals[k*n_training_examples + n-99:k*n_training_examples + n + 1])
-                        n_small = np.sum(self.max_jacobian_eigvals[k*n_training_examples + n-99:k*n_training_examples + n + 1] < 1)
-            
-                        # update plots
-                        if record_matrices:
-                            A = np.mean(np.array([self.jacobian_prod_matrices[k*n_training_examples + n-99:k*n_training_examples + n + 1][i] for i in max_inds][:-10]), axis=0)
-                            im_plot.set_data(A)
+                if plot_eigvals and record_eigvals and (n+1) % 100 == 0:
+                    max_inds = np.argsort(self.max_jacobian_eigvals[k*n_training_examples + n -99:k*n_training_examples + n + 1])
+                    max_ind = np.argmax(self.max_jacobian_eigvals[k*n_training_examples + n-99:k*n_training_examples + n + 1])
+                    min_ind = np.argmin(self.max_jacobian_eigvals[k*n_training_examples + n-99:k*n_training_examples + n + 1])
+                    n_small = np.sum(self.max_jacobian_eigvals[k*n_training_examples + n-99:k*n_training_examples + n + 1] < 1)
+        
+                    # update plots
+                    if record_matrices:
+                        A = np.mean(np.array([self.jacobian_prod_matrices[k*n_training_examples + n-99:k*n_training_examples + n + 1][i] for i in max_inds][:-10]), axis=0)
+                        im_plot.set_data(A)
 
-                        if record_loss:
-                            loss_plot.set_xdata(np.arange(k*n_training_examples + n))
-                            loss_plot.set_ydata(self.losses[:k*n_training_examples + n])
-                            ax2.set_xlim(0, k*n_training_examples + n)
-                            ax2.set_ylim(np.amin(self.losses[:k*n_training_examples + n]) - 1e-6, np.amax(self.losses[:k*n_training_examples + n]) + 1e-6)
+                    if record_loss:
+                        loss_plot.set_xdata(np.arange(k*n_training_examples + n))
+                        loss_plot.set_ydata(self.losses[:k*n_training_examples + n])
+                        ax2.set_xlim(0, k*n_training_examples + n)
+                        ax2.set_ylim(np.amin(self.losses[:k*n_training_examples + n]) - 1e-6, np.amax(self.losses[:k*n_training_examples + n]) + 1e-6)
 
-                        max_jacobian_plot.set_xdata(np.arange(k*n_training_examples + n))
-                        max_jacobian_plot.set_ydata(self.max_jacobian_eigvals[:k*n_training_examples + n])
-                        ax3.set_xlim(0, k*n_training_examples + n)
-                        ax3.set_ylim(np.amin(self.max_jacobian_eigvals[:k*n_training_examples + n]) - 1e-6, np.amax(self.max_jacobian_eigvals[:k*n_training_examples + n]) + 1e-6)
+                    max_jacobian_plot.set_xdata(np.arange(k*n_training_examples + n))
+                    max_jacobian_plot.set_ydata(self.max_jacobian_eigvals[:k*n_training_examples + n])
+                    ax3.set_xlim(0, k*n_training_examples + n)
+                    ax3.set_ylim(np.amin(self.max_jacobian_eigvals[:k*n_training_examples + n]) - 1e-6, np.amax(self.max_jacobian_eigvals[:k*n_training_examples + n]) + 1e-6)
 
-                        fig.canvas.draw()
-                        fig.canvas.flush_events()
+                    fig.canvas.draw()
+                    fig.canvas.flush_events()
 
                 if (n+1) % 1000 == 0:
                     if n != n_training_examples - 1:
@@ -970,6 +976,7 @@ class Network:
                         if save_simulation:
                             print("Saving...", end="")
                             if self.last_epoch < 0:
+                                # we are running a new simulation
                                 quick_test_errs = self.quick_test_errs[:(k+1)*int(n_training_examples/1000)+1]
                                 full_test_errs  = self.full_test_errs[:k+2]
 
@@ -982,6 +989,9 @@ class Network:
                                 if record_training_labels:
                                     training_labels = self.training_labels[:(k+1)*n_training_examples]
 
+                                if record_burst_times:
+                                    burst_times_full = [ self.burst_times_full[m][:(k+1)*n_training_examples] for m in range(self.M) ]
+
                                 if record_training_error:
                                     training_errors = self.training_errors[:k+1]
 
@@ -992,6 +1002,7 @@ class Network:
                                         jacobian_prod_matrices = self.jacobian_prod_matrices[:(k+1)*n_training_examples]
                                         weight_prod_matrices   = self.weight_prod_matrices[:(k+1)*n_training_examples+1]
                             else:
+                                # this is a continuation of a previously-started simulation
                                 quick_test_errs = np.concatenate([self.prev_quick_test_errs, self.quick_test_errs[:(k+1)*int(n_training_examples/1000)]], axis=0)
                                 if n == n_training_examples - 1:
                                     full_test_errs = np.concatenate([self.prev_full_test_errs, self.full_test_errs[:k+1]], axis=0)
@@ -1004,6 +1015,9 @@ class Network:
 
                                 if record_training_labels:
                                     training_labels = np.concatenate([self.prev_training_labels, self.training_labels[:(k+1)*n_training_examples]], axis=0)
+
+                                if record_burst_times:
+                                    burst_times_full = [ np.concatenate([self.prev_burst_times_full[m], self.burst_times_full[m][:(k+1)*n_training_examples]]) for m in range(self.M) ]
 
                                 if record_training_error:
                                     training_errors = np.concatenate([self.prev_training_errors, self.training_errors[:k+1]], axis=0)
@@ -1035,6 +1049,10 @@ class Network:
 
                             if record_training_labels:
                                 np.save(os.path.join(self.simulation_path, "training_labels.npy"), training_labels)
+
+                            if record_burst_times:
+                                for m in range(self.M):
+                                    np.save(os.path.join(self.simulation_path, "burst_times_{}.npy".format(m)), self.burst_times_full[m])
 
                             if record_training_error:
                                 np.save(os.path.join(self.simulation_path, "training_errors.npy"), training_errors)
@@ -1206,6 +1224,8 @@ class hiddenLayer(Layer):
         self.average_PSP_B_f = np.zeros((self.f_input_size, 1))
         self.average_PSP_B_t = np.zeros((self.f_input_size, 1))
 
+        self.integration_counter = 0
+
         if update_backward_weights:
             self.average_PSP_A_f = np.zeros((self.b_input_size, 1))
             self.average_PSP_A_t = np.zeros((self.b_input_size, 1))
@@ -1233,6 +1253,8 @@ class hiddenLayer(Layer):
         self.average_phi_C_f *= 0
         self.average_PSP_B_f *= 0
         self.average_PSP_B_t *= 0
+
+        self.integration_counter = 0
 
         if update_backward_weights:
             self.average_PSP_A_f *= 0
@@ -1269,12 +1291,10 @@ class hiddenLayer(Layer):
         else:
             self.PSP_A = b_input
 
-        self.PSP_A_hist = np.roll(self.PSP_A_hist, -1, axis=-1)
-        self.PSP_A_hist[:, -1] = self.PSP_A[:, 0]
+        self.PSP_A_hist[:, self.integration_counter % integration_time] = self.PSP_A[:, 0]
 
         self.A = np.dot(self.net.Y[self.m], self.PSP_A) + self.net.c[self.m]
-        self.A_hist = np.roll(self.A_hist, -1, axis=-1)
-        self.A_hist[:, -1] = self.A[:, 0]
+        self.A_hist[:, self.integration_counter % integration_time] = self.A[:, 0]
 
     def update_B(self, f_input):
         if use_spiking_feedforward:
@@ -1282,8 +1302,7 @@ class hiddenLayer(Layer):
         else:
             self.PSP_B = f_input
 
-        self.PSP_B_hist = np.roll(self.PSP_B_hist, -1, axis=-1)
-        self.PSP_B_hist[:, -1] = self.PSP_B[:, 0]
+        self.PSP_B_hist[:, self.integration_counter % integration_time] = self.PSP_B[:, 0]
 
         self.B = np.dot(self.net.W[self.m], self.PSP_B) + self.net.b[self.m]
 
@@ -1300,22 +1319,21 @@ class hiddenLayer(Layer):
             elif phase == "target":
                 self.C = k_B*self.B
 
-        self.C_hist = np.roll(self.C_hist, -1, axis=-1)
-        self.C_hist[:, -1] = self.C[:, 0]
+        self.C_hist[:, self.integration_counter % integration_time] = self.C[:, 0]
 
         self.phi_C = phi(self.C)
-        self.phi_C_hist = np.roll(self.phi_C_hist, -1, axis=-1)
-        self.phi_C_hist[:, -1] = self.phi_C[:, 0]
+        self.phi_C_hist[:, self.integration_counter % integration_time] = self.phi_C[:, 0]
 
     def spike(self):
-        self.S_hist = np.roll(self.S_hist, -1, axis=-1)
-        self.S_hist[:, -1] = np.random.poisson(np.maximum(self.phi_C[:, 0], 0))
+        self.S_hist = np.concatenate([self.S_hist[:, 1:], np.random.poisson(self.phi_C)], axis=-1)
 
     def out_f(self, f_input, b_input, calc_averages):
         self.update_B(f_input)
         self.update_A(b_input)
         self.update_C(phase="forward")
         self.spike()
+
+        self.integration_counter = (self.integration_counter + 1) % integration_time
 
         if calc_averages:
             self.average_C_f     = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
@@ -1331,6 +1349,8 @@ class hiddenLayer(Layer):
         self.update_A(b_input)
         self.update_C(phase="target")
         self.spike()
+
+        self.integration_counter = (self.integration_counter + 1) % integration_time
 
         if calc_averages:
             self.average_C_t     = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
@@ -1369,6 +1389,8 @@ class finalLayer(Layer):
         self.average_PSP_B_f = np.zeros((self.f_input_size, 1))
         self.average_PSP_B_t = np.zeros((self.f_input_size, 1))
 
+        self.integration_counter = 0
+
     def clear_vars(self):
         self.B      *= 0
         self.I      *= 0
@@ -1385,6 +1407,8 @@ class finalLayer(Layer):
         self.average_phi_C_t *= 0
         self.average_PSP_B_f *= 0
         self.average_PSP_B_t *= 0
+
+        self.integration_counter = 0
 
     def update_W(self, burst_indices):
         self.E = (np.mean(self.phi_C_hist, axis=-1)[:, np.newaxis] - phi(self.average_C_f))*-k_D*deriv_phi(self.average_C_f)
@@ -1404,8 +1428,7 @@ class finalLayer(Layer):
         else:
             self.PSP_B = f_input
 
-        self.PSP_B_hist = np.roll(self.PSP_B_hist, -1, axis=-1)
-        self.PSP_B_hist[:, -1] = self.PSP_B[:, 0]
+        self.PSP_B_hist[:, self.integration_counter % integration_time] = self.PSP_B[:, 0]
 
         self.B = np.dot(self.net.W[self.m], self.PSP_B) + self.net.b[self.m]
 
@@ -1433,22 +1456,21 @@ class finalLayer(Layer):
             elif phase == "target":
                 self.C = k_D*self.B + k_I*self.I
 
-        self.C_hist = np.roll(self.C_hist, -1, axis=-1)
-        self.C_hist[:, -1] = self.C[:, 0]
+        self.C_hist[:, self.integration_counter % integration_time] = self.C[:, 0]
 
         self.phi_C = phi(self.C)
-        self.phi_C_hist = np.roll(self.phi_C_hist, -1, axis=-1)
-        self.phi_C_hist[:, -1] = self.phi_C[:, 0]
+        self.phi_C_hist[:, self.integration_counter % integration_time] = self.phi_C[:, 0]
 
     def spike(self):
-        self.S_hist = np.roll(self.S_hist, -1, axis=-1)
-        self.S_hist[:, -1] = np.random.poisson(np.maximum(self.phi_C[:, 0], 0))
+        self.S_hist = np.concatenate([self.S_hist[:, 1:], np.random.poisson(self.phi_C)], axis=-1)
 
     def out_f(self, f_input, b_input, calc_averages):
         self.update_B(f_input)
         self.update_I(b_input)
         self.update_C(phase="forward")
         self.spike()
+
+        self.integration_counter = (self.integration_counter + 1) % integration_time
 
         if calc_averages:
             self.average_C_f     = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
@@ -1460,6 +1482,8 @@ class finalLayer(Layer):
         self.update_I(b_input)
         self.update_C(phase="target")
         self.spike()
+
+        self.integration_counter = (self.integration_counter + 1) % integration_time
 
         if calc_averages:
             self.average_C_t     = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
@@ -1638,6 +1662,13 @@ def get_MNIST(n_tune=0):
 def shuffle_arrays(*args):
     p = np.random.permutation(args[0].shape[1])
     return (a[:, p] for a in args)
+
+def shiftInPlace(l, n):
+    n = n % len(l)
+    head = l[:n]
+    del l[:n]
+    l.extend(head)
+    return l
 
 # --- Misc. --- #
 
