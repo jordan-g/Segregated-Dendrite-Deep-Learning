@@ -6,7 +6,7 @@ import deep_learning as dl
 
 # load MNIST -- assuming the original MNIST binary files are in the current folder
 try:
-	x_train, x_test, t_train, t_test = dl.load_MNIST()
+	x_train, t_train, x_test, t_test = dl.load_MNIST()
 except:
 	exit()
 
@@ -14,7 +14,7 @@ except:
 dl.use_sparse_feedback = True
 
 # set training parameters
-f_etas = (0.3, 0.01)
+f_etas = (0.21, 0.21)
 b_etas = None
 n_epochs = 10
 n_training_examples = 60000
