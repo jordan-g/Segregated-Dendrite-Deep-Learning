@@ -713,15 +713,18 @@ class Network:
                 'record_backprop_angle'  : record_backprop_angle,
                 'record_loss'            : record_loss,
                 'record_voltages'        : record_voltages,
+                'record_training_error'  : record_training_error,
+                'record_training_labels' : record_training_labels,
+                'record_burst_times'     : record_burst_times,
                 'record_eigvals'         : record_eigvals,
                 'record_matrices'        : record_matrices,
                 'plot_eigvals'           : plot_eigvals,
                 'dt'                     : dt,
                 'mem'                    : mem,
+                'integration_time'       : integration_time,
                 'l_f_phase'              : l_f_phase,
                 'l_t_phase'              : l_t_phase,
                 'l_f_phase_test'         : l_f_phase_test,
-                'integration_time'       : integration_time,
                 'phi_max'                : phi_max,
                 'tau_s'                  : tau_s,
                 'tau_L'                  : tau_L,
@@ -1839,9 +1842,9 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     global use_rand_phase_lengths, use_conductances, use_broadcast, use_spiking_feedback, use_spiking_feedforward
     global use_symmetric_weights, noisy_symmetric_weights
     global use_sparse_feedback, update_backward_weights, use_backprop, use_apical_conductance, use_weight_optimization
-    global record_backprop_angle, record_loss, record_eigvals, record_matrices, plot_eigvals
-    global dt, mem
-    global l_f_phase, l_t_phase, l_f_phase_test, integration_time
+    global record_backprop_angle, record_loss, record_training_error, record_training_labels, record_burst_times, record_voltages, record_eigvals, record_matrices, plot_eigvals
+    global dt, mem, integration_time
+    global l_f_phase, l_t_phase, l_f_phase_test
     global phi_max
     global tau_s, tau_L
     global g_B, g_A, g_L, g_D
@@ -1863,16 +1866,19 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     use_weight_optimization = params['use_weight_optimization']
     record_backprop_angle   = params['record_backprop_angle']
     record_loss             = params['record_loss']
+    record_training_error   = params['record_training_error']
+    record_training_labels  = params['record_training_labels']
+    record_burst_times      = params['record_burst_times']
     record_voltages         = params['record_voltages']
     record_eigvals          = params['record_eigvals']
     record_matrices         = params['record_matrices']
     plot_eigvals            = params['plot_eigvals']
     dt                      = params['dt']
     mem                     = params['mem']
+    integration_time        = params['integration_time']
     l_f_phase               = params['l_f_phase']
     l_t_phase               = params['l_t_phase']
     l_f_phase_test          = params['l_f_phase_test']
-    integration_time        = params['integration_time']
     phi_max                 = params['phi_max']
     tau_s                   = params['tau_s']
     tau_L                   = params['tau_L']
