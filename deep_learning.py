@@ -140,6 +140,9 @@ class Network:
     def __init__(self, n):
         '''
         Initialize the network.
+
+        Arguments:
+            n (tuple) : Number of units in each layer of the network, eg. (500, 100, 10).
         '''
 
         if type(n) == int:
@@ -151,7 +154,7 @@ class Network:
         self.n_neurons_per_category = int(self.n[-1]/10)
 
         # load MNIST
-        self.x_train, self.x_test, self.t_train, self.t_test = load_MNIST()
+        self.x_train, self.t_train, self.x_test, self.t_test = load_MNIST()
 
         self.n_in  = self.x_train.shape[0] # input size
         self.n_out = self.n[-1]            # output size
@@ -304,11 +307,11 @@ class Network:
 
     def out_f(self, training=False, calc_averages=True):
         '''
-        Perform a forward pass through the network.
+        Perform a forward phase pass through the network.
 
         Arguments:
-            training (bool)      : Whether the network is in training (True) or testing (False) mode
-            calc_averages (bool) : Whether averaged variables should be calculated by layers
+            training (bool)      : Whether the network is in training (True) or testing (False) mode.
+            calc_averages (bool) : Whether averaged variables should be calculated by layers.
         '''
 
         if use_spiking_feedforward:
@@ -380,7 +383,7 @@ class Network:
         but with a target introduced at the top layer.
 
         Arguments:
-            calc_averages (bool) : Whether averaged variables should be calculated by layers
+            calc_averages (bool) : Whether averaged variables should be calculated by layers.
         '''
 
         # same as forward pass, but with a target introduced at the top layer
@@ -452,9 +455,9 @@ class Network:
         Perform a forward phase.
 
         Arguments:
-            x (ndarray)     : Input array of size (X, 1) where X is the size of the input, eg. (784, 1)
-            t (ndarray)     : Target array of size (T, 1) where T is the size of the target, eg. (10, 1)
-            training (bool) : Whether the network is in training (True) or testing (False) mode
+            x (ndarray)     : Input array of size (X, 1) where X is the size of the input, eg. (784, 1).
+            t (ndarray)     : Target array of size (T, 1) where T is the size of the target, eg. (10, 1).
+            training (bool) : Whether the network is in training (True) or testing (False) mode.
         '''
 
         if record_voltages and training:
@@ -500,17 +503,17 @@ class Network:
                 with open(os.path.join(self.simulation_path, 'C_hist_{}.csv'.format(m)), 'a') as C_hist_file:
                     np.savetxt(C_hist_file, self.C_hists[m])
 
-    def t_phase(self, x, t, training_example_index, training=False):
+    def t_phase(self, x, t, training_num):
         '''
         Perform a target phase.
 
         Arguments:
-            x (ndarray)     : Input array of size (X, 1) where X is the size of the input, eg. (784, 1)
-            t (ndarray)     : Target array of size (T, 1) where T is the size of the target, eg. (10, 1)
-            training (bool) : Whether the network is in training (True) or testing (False) mode
+            x (ndarray)        : Input array of size (X, 1) where X is the size of the input, eg. (784, 1).
+            t (ndarray)        : Target array of size (T, 1) where T is the size of the target, eg. (10, 1).
+            training_num (int) : Number (from start of the epoch) of the training example being shown.
         '''
 
-        if record_voltages and training:
+        if record_voltages:
             # initialize voltage arrays
             self.A_hists = [ np.zeros((l_t_phase, self.l[m].size)) for m in xrange(self.M-1)]
             self.B_hists = [ np.zeros((l_t_phase, self.l[m].size)) for m in xrange(self.M)]
@@ -531,7 +534,7 @@ class Network:
 
             if use_rand_burst_times:
                 for m in xrange(self.M-1, -1, -1):
-                    burst_indices = np.nonzero(time == self.burst_times[m][training_example_index])
+                    burst_indices = np.nonzero(time == self.burst_times[m][training_num])
 
                     # update weights
                     self.l[m].update_W(burst_indices=burst_indices, calc_E_bp=calc_E_bp)
@@ -541,7 +544,7 @@ class Network:
                         if m < self.M-1:
                             self.l[m].update_Y(burst_indices=burst_indices, calc_E_bp=calc_E_bp)
 
-            if record_voltages and training:
+            if record_voltages:
                 # record voltages for this timestep
                 for m in xrange(self.M):
                     if m != self.M-1:
@@ -594,7 +597,7 @@ class Network:
                 # increase magnitude of surviving weights
                 self.Y[m] *= 5
 
-        if record_voltages and training:
+        if record_voltages:
             # append voltages to files
             for m in xrange(self.M):
                 if m != self.M-1:
@@ -610,16 +613,16 @@ class Network:
         Train the network. Checkpoints will be saved at the end of every epoch if save_simulation is True.
 
         Arguments:
-            f_etas (tuple)              : Tuple containing learning rates for each layer's feedforward weights, eg. (0.21, 0.21)
-            b_etas (tuple/None)         : Tuple containing learning rates for each layer's feedback weights.
+            f_etas (tuple)              : Learning rates for each layer's feedforward weights, eg. (0.21, 0.21).
+            b_etas (tuple/None)         : Learning rates for each layer's feedback weights.
                                           If None, no backward weight updates occur.
-            n_epochs (int)              : Number of epochs of training
-            n_training_examples (int)   : Number of training examples per epoch
-            save_simulation (bool)      : Whether to save data from this simulation
-            simulations_folder (string) : Name of the parent folder that can contain data from multiple simulations
-            folder_name (string)        : Name of the subfolder in the parent folder that will contain data from this simulation
-            overwrite (bool)            : Whether to overwrite the folder given by folder_name if it already exists
-            simulation_notes (string)   : Notes about this simulation to save in the parameters text file that will be generated
+            n_epochs (int)              : Number of epochs of training.
+            n_training_examples (int)   : Number of training examples per epoch.
+            save_simulation (bool)      : Whether to save data from this simulation.
+            simulations_folder (string) : Name of the parent folder that can contain data from multiple simulations.
+            folder_name (string)        : Name of the subfolder in the parent folder that will contain data from this simulation.
+            overwrite (bool)            : Whether to overwrite the folder given by folder_name if it already exists.
+            simulation_notes (string)   : Notes about this simulation to save in the parameters text file that will be generated.
             latest_epoch (int)          : The latest epoch of this simulation that has been completed.
                                           If < 0, this is a new simulation.
                                           If >= 0, this is a continuation of a previously-started simulation.
@@ -914,7 +917,7 @@ class Network:
                     sys.stdout.flush()
 
                 # get training example data
-                self.x = self.x_train[:, n][:, np.newaxis]
+                self.x = phi_max*self.x_train[:, n][:, np.newaxis]
                 self.t = self.t_train[:, n][:, np.newaxis]
 
                 if record_voltages:
@@ -936,7 +939,7 @@ class Network:
                     if sel_num == target_num:
                         num_correct += 1
 
-                self.t_phase(self.x, self.t.repeat(self.n_neurons_per_category, axis=0), n, training=True)
+                self.t_phase(self.x, self.t.repeat(self.n_neurons_per_category, axis=0), n)
 
                 if record_loss:
                     self.losses[k*n_training_examples + n] = self.loss
@@ -1207,7 +1210,7 @@ class Network:
             self.x_hist *= 0
 
             # get testing example data
-            self.x = self.x_test[:, n][:, np.newaxis]
+            self.x = phi_max*self.x_test[:, n][:, np.newaxis]
             self.t = self.t_test[:, n][:, np.newaxis]
 
             # do a forward phase & get the unit with maximum average somatic potential
@@ -1290,12 +1293,38 @@ class Network:
 
 class Layer:
     def __init__(self, net, m):
+        '''
+        Initialize the layer.
+
+        Arguments:
+            net (Network) : The network that the layer belongs to.
+            m (int)       : The layer number, eg. m = 0 for the first layer.
+        '''
+
         self.net  = net
         self.m    = m
         self.size = self.net.n[m]
 
+    def spike(self):
+        '''
+        Generate Poisson spikes based on the firing rates of the neurons.
+        '''
+
+        self.S_hist = np.concatenate([self.S_hist[:, 1:], np.random.poisson(self.phi_C)], axis=-1)
+
 class hiddenLayer(Layer):
     def __init__(self, net, m, f_input_size, b_input_size):
+        '''
+        Initialize the hidden layer.
+
+        Arguments:
+            net (Network)      : The network that the layer belongs to.
+            m (int)            : The layer number, eg. m = 0 for the first hidden layer.
+            f_input_size (int) : The size of feedforward input, eg. 784 for MNIST input.
+            b_input_size (int) : The size of feedback input. This is the same as the
+                                 the number of units in the next layer.
+        '''
+
         Layer.__init__(self, net, m)
 
         self.f_input_size = f_input_size
@@ -1331,6 +1360,10 @@ class hiddenLayer(Layer):
             self.average_PSP_A_t = np.zeros((self.b_input_size, 1))
 
     def clear_vars(self):
+        '''
+        Clear all layer variables.
+        '''
+
         self.A          *= 0
         self.B          *= 0
         self.C          *= 0
@@ -1361,6 +1394,16 @@ class hiddenLayer(Layer):
             self.average_PSP_A_t *= 0
 
     def update_W(self, burst_indices, calc_E_bp=False):
+        '''
+        Update feedforward weights.
+
+        Arguments:
+            burst_indices (ndarray) : Indices of neurons that are bursting.
+                                      Weights are updated only for these neurons.
+            calc_E_bp (bool)        : Whether to calculate the error prescribed by backpropagation.
+                                      True only at the end of the target phase, False otherwise.
+        '''
+
         if not use_backprop:
             self.E = (alpha(np.mean(self.A_hist[burst_indices], axis=-1)[:, np.newaxis]) - alpha(self.average_A_f[burst_indices]))*-k_B*deriv_phi(self.average_C_f[burst_indices])
 
@@ -1382,12 +1425,27 @@ class hiddenLayer(Layer):
         self.net.b[self.m][burst_indices] += -self.net.f_etas[self.m]*P_hidden*self.delta_b
 
     def update_Y(self, burst_indices):
+        '''
+        Update feedback weights.
+
+        Arguments:
+            burst_indices (ndarray) : Indices of neurons that are bursting.
+                                      Weights are updated only for these neurons.
+        '''
+
         E_inv = (phi(self.average_C_f[burst_indices]) - phi(self.average_A_f[burst_indices]))*-deriv_phi(self.average_A_f[burst_indices])
 
         self.delta_Y = np.dot(E_inv, self.average_PSP_A_f.T)
         self.net.Y[self.m][burst_indices] += -self.net.b_etas[self.m]*self.delta_Y
 
     def update_A(self, b_input):
+        '''
+        Update apical potentials.
+
+        Arguments:
+            b_input (ndarray) : Feedback input.
+        '''
+
         if use_spiking_feedback:
             self.PSP_A = np.dot(b_input, kappas)
         else:
@@ -1399,6 +1457,13 @@ class hiddenLayer(Layer):
         self.A_hist[:, self.integration_counter % integration_time] = self.A[:, 0]
 
     def update_B(self, f_input):
+        '''
+        Update basal potentials.
+
+        Arguments:
+            f_input (ndarray) : Feedforward input.
+        '''
+
         if use_spiking_feedforward:
             self.PSP_B = np.dot(f_input, kappas)
         else:
@@ -1408,7 +1473,11 @@ class hiddenLayer(Layer):
 
         self.B = np.dot(self.net.W[self.m], self.PSP_B) + self.net.b[self.m]
 
-    def update_C(self, phase):
+    def update_C(self):
+        '''
+        Update somatic potentials & calculate firing rates.
+        '''
+
         if use_conductances:
             if use_apical_conductance:
                 self.C_dot = -g_L*self.C + g_B*(self.B - self.C) + g_A*(self.A - self.C)
@@ -1416,23 +1485,27 @@ class hiddenLayer(Layer):
                 self.C_dot = -g_L*self.C + g_B*(self.B - self.C)
             self.C += self.C_dot*dt
         else:
-            if phase == "forward":
-                self.C = k_B*self.B
-            elif phase == "target":
-                self.C = k_B*self.B
+            self.C = k_B*self.B
 
         self.C_hist[:, self.integration_counter % integration_time] = self.C[:, 0]
 
         self.phi_C = phi(self.C)
         self.phi_C_hist[:, self.integration_counter % integration_time] = self.phi_C[:, 0]
 
-    def spike(self):
-        self.S_hist = np.concatenate([self.S_hist[:, 1:], np.random.poisson(self.phi_C)], axis=-1)
-
     def out_f(self, f_input, b_input, calc_averages):
+        '''
+        Perform a forward phase pass.
+
+        Arguments:
+            f_input (ndarray)    : Feedforward input.
+            b_input (ndarray)    : Feedback input.
+            calc_averages (bool) : Whether averaged variables should be calculated.
+                                   True only at the end of the forward phase, False otherwise.
+        '''
+
         self.update_B(f_input)
         self.update_A(b_input)
-        self.update_C(phase="forward")
+        self.update_C()
         self.spike()
 
         self.integration_counter = (self.integration_counter + 1) % integration_time
@@ -1447,9 +1520,19 @@ class hiddenLayer(Layer):
                 self.average_PSP_A_f = np.mean(self.PSP_A_hist, axis=-1)[:, np.newaxis]
 
     def out_t(self, f_input, b_input, calc_averages):
+        '''
+        Perform a target phase pass.
+
+        Arguments:
+            f_input (ndarray)    : Feedforward input.
+            b_input (ndarray)    : Feedback input.
+            calc_averages (bool) : Whether averaged variables should be calculated.
+                                   True only at the end of the target phase, False otherwise.
+        '''
+
         self.update_B(f_input)
         self.update_A(b_input)
-        self.update_C(phase="target")
+        self.update_C()
         self.spike()
 
         self.integration_counter = (self.integration_counter + 1) % integration_time
@@ -1468,6 +1551,16 @@ NOTE: In the paper, we denote the output layer's somatic & dendritic potentials
 """
 class finalLayer(Layer):
     def __init__(self, net, m, f_input_size):
+        '''
+        Initialize the final layer.
+
+        Arguments:
+            net (Network)      : The network that the layer belongs to.
+            m (int)            : The layer number, ie. m = M - 1 where M is the total number of layers.
+            f_input_size (int) : The size of feedforward input. This is the same as the
+                                 the number of units in the previous layer.
+        '''
+
         Layer.__init__(self, net, m)
 
         self.f_input_size = f_input_size
@@ -1494,6 +1587,10 @@ class finalLayer(Layer):
         self.integration_counter = 0
 
     def clear_vars(self):
+        '''
+        Clear all layer variables.
+        '''
+
         self.B      *= 0
         self.I      *= 0
         self.C      *= 0
@@ -1513,6 +1610,16 @@ class finalLayer(Layer):
         self.integration_counter = 0
 
     def update_W(self, burst_indices, calc_E_bp=False):
+        '''
+        Update feedforward weights.
+
+        Arguments:
+            burst_indices (ndarray) : Indices of neurons that are bursting.
+                                      Weights are updated only for these neurons.
+            calc_E_bp (bool)        : Whether to calculate the error prescribed by backpropagation.
+                                      True only at the end of the target phase, False otherwise.
+        '''
+
         self.E = (np.mean(self.phi_C_hist[burst_indices], axis=-1)[:, np.newaxis] - phi(self.average_C_f[burst_indices]))*-k_D*deriv_phi(self.average_C_f[burst_indices])
 
         if use_backprop or (record_backprop_angle and calc_E_bp):
@@ -1525,6 +1632,13 @@ class finalLayer(Layer):
         self.net.b[self.m][burst_indices] += -self.net.f_etas[self.m]*P_final*self.delta_b
 
     def update_B(self, f_input):
+        '''
+        Update basal potentials.
+
+        Arguments:
+            f_input (ndarray) : Feedforward input.
+        '''
+
         if use_spiking_feedforward:
             self.PSP_B = np.dot(f_input, kappas)
         else:
@@ -1534,18 +1648,33 @@ class finalLayer(Layer):
 
         self.B = np.dot(self.net.W[self.m], self.PSP_B) + self.net.b[self.m]
 
-    def update_I(self, input=None):
-        if input is None:
+    def update_I(self, b_input=None):
+        '''
+        Update injected perisomatic currents.
+
+        Arguments:
+            b_input (ndarray) : Target input, eg. if the target label is 8,
+                                b_input = np.array([0, 0, 0, 0, 0, 0, 0, 0, 1, 0]).
+        '''
+
+        if b_input is None:
             self.I *= 0
         else:
             if use_conductances:
-                g_E = input
+                g_E = b_input
                 g_I = -g_E + 1
                 self.I = g_E*(E_E - self.C) + g_I*(E_I - self.C)
             else:
-                self.I = (8*input - 4)
+                self.I = (8*b_input - 4)
 
     def update_C(self, phase):
+        '''
+        Update somatic potentials & calculate firing rates.
+
+        Arguments:
+            phase (string) : Current phase of the network, "forward" or "target".
+        '''
+
         if use_conductances:
             if phase == "forward":
                 self.C_dot = -g_L*self.C + g_D*(self.B - self.C)
@@ -1563,10 +1692,17 @@ class finalLayer(Layer):
         self.phi_C = phi(self.C)
         self.phi_C_hist[:, self.integration_counter % integration_time] = self.phi_C[:, 0]
 
-    def spike(self):
-        self.S_hist = np.concatenate([self.S_hist[:, 1:], np.random.poisson(self.phi_C)], axis=-1)
-
     def out_f(self, f_input, b_input, calc_averages):
+        '''
+        Perform a forward phase pass.
+
+        Arguments:
+            f_input (ndarray)    : Feedforward input.
+            b_input (ndarray)    : Target input. b_input = None during this phase.
+            calc_averages (bool) : Whether averaged variables should be calculated.
+                                   True only at the end of the forward phase, False otherwise.
+        '''
+
         self.update_B(f_input)
         self.update_I(b_input)
         self.update_C(phase="forward")
@@ -1580,6 +1716,16 @@ class finalLayer(Layer):
             self.average_PSP_B_f = np.mean(self.PSP_B_hist, axis=-1)[:, np.newaxis]
 
     def out_t(self, f_input, b_input, calc_averages):
+        '''
+        Perform a target phase pass.
+
+        Arguments:
+            f_input (ndarray)    : Feedforward input.
+            b_input (ndarray)    : Target input.
+            calc_averages (bool) : Whether averaged variables should be calculated.
+                                   True only at the end of the target phase, False otherwise.
+        '''
+
         self.update_B(f_input)
         self.update_I(b_input)
         self.update_C(phase="target")
@@ -1597,6 +1743,22 @@ class finalLayer(Layer):
 # ---------------------------------------------------------------
 
 def load_simulation(latest_epoch, folder_name, simulations_folder=default_simulations_folder):
+    '''
+        Re-load a previously saved simulation, recreating the network. This function can
+        be used to continue an interrupted simulation.
+
+        Arguments:
+            latest_epoch (int)          : The latest epoch of this simulation that has been completed.
+            simulations_folder (string) : Name of the parent folder that contains the folder for this simulation.
+            folder_name (string)        : Name of the subfolder in the parent folder that contains data from this simulation.
+        
+        Returns:
+            net (Network)             : Network object with re-loaded weights.
+            f_etas (tuple)            : Learning rates for each layer's feedforward weights, eg. (0.21, 0.21).
+            b_etas (tuple)            : Learning rates for each layer's feedback weights.
+            n_training_examples (int) : Number of training examples per epoch.
+    '''
+
     simulation_path = os.path.join(simulations_folder, folder_name)
 
     print("Loading simulation from \"{}\" @ epoch {}.\n".format(simulation_path, latest_epoch))
@@ -1675,39 +1837,74 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
 
 # --- MNIST --- #
 
-def save_MNIST(x_train, x_test, t_train, t_test, x_tune=None, t_tune=None):
-    np.save("x_train", x_train)
-    np.save("x_test", x_test)
-    np.save("t_train", t_train)
-    np.save("t_test", t_test)
+def save_MNIST(x_train, t_train, x_test, t_test, x_valid=None, t_valid=None):
+    '''
+        Save MNIST data arrays to .npy files. Each data array has size M x N,
+        where M is the size of the inputs/targets (ie. 784 or 10 for MNIST),
+        and N is the number of examples in the set.
 
-def load_MNIST(n_tune=0):
+        Arguments:
+            x_train (ndarray) : Training inputs.
+            t_train (ndarray) : Training targets.
+            x_test (ndarray)  : Testing inputs.
+            t_test (ndarray)  : Testing targets.
+            x_valid (ndarray) : Validation inputs.
+            t_valid (ndarray) : Validation targets.
+    '''
+
+    np.save("x_train.npy", x_train)
+    np.save("x_test.npy", x_test)
+    np.save("t_train.npy", t_train)
+    np.save("t_test.npy", t_test)
+
+    if x_valid != None and t_valid != None:
+        np.save("x_valid.npy", x_valid)
+        np.save("t_valid.npy", t_valid)
+
+def load_MNIST(n_valid=0):
+    '''
+        Load MNIST data arrays from .npy files. Each data array has size M x N,
+        where M is the size of the inputs/targets (ie. 784 or 10 for MNIST),
+        and N is the number of examples in the set.
+
+        Arguments:
+            n_valid (int) : Number of validation examples that are saved.
+
+        Returns:
+            x_train (ndarray) : Training inputs.
+            t_train (ndarray) : Training targets.
+            x_test (ndarray)  : Testing inputs.
+            t_test (ndarray)  : Testing targets.
+            x_valid (ndarray) : Validation inputs. Returned if n_valid > 0.
+            t_valid (ndarray) : Validation targets. Returned if n_valid > 0.
+    '''
+
     try:
         x_train = np.load("x_train.npy")
         x_test  = np.load("x_test.npy")
         t_train = np.load("t_train.npy")
         t_test  = np.load("t_test.npy")
-        if n_tune != 0:
-            x_tune = np.load("x_tune.npy")
-            t_tune = np.load("t_tune.npy")
+        if n_valid != 0:
+            x_valid = np.load("x_valid.npy")
+            t_valid = np.load("t_valid.npy")
     except:
         print("Error: Could not find MNIST .npy files in the current directory.\nLooking for original binary files...")
         try:
-            if n_tune != 0:
-                x_train, x_test, x_tune, t_train, t_test, t_tune = get_MNIST(n_tune)
-                save_MNIST(x_train, x_test, t_train, t_test, x_tune, t_tune)
+            if n_valid != 0:
+                x_train, t_train, x_test, t_test, x_valid, t_valid = get_MNIST(n_valid)
+                save_MNIST(x_train, t_train, x_test, t_test, x_valid, t_valid)
             else:
-                x_train, x_test, t_train, t_test = get_MNIST()
-                save_MNIST(x_train, x_test, t_train, t_test)
+                x_train, t_train, x_test, t_test = get_MNIST()
+                save_MNIST(x_train, t_train, x_test, t_test)
         except:
             return
 
-    if n_tune != 0:
-        return phi_max*x_train, phi_max*x_test, phi_max*x_tune, t_train, t_test, t_tune
+    if n_valid != 0:
+        return x_train, t_train, x_test, t_test, x_valid, t_valid
     else:
-        return phi_max*x_train, phi_max*x_test, t_train, t_test
+        return x_train, t_train, x_test, t_test
 
-def get_MNIST(n_tune=0):
+def get_MNIST(n_valid=0):
     '''
     Open original MNIST binary files (which can be obtained from
     http://yann.lecun.com/exdb/mnist/) and generate arrays of
@@ -1722,6 +1919,21 @@ def get_MNIST(n_tune=0):
         t10k-labels.idx1-ubyte
 
     are expected to be in the same directory as this script.
+
+    Each data array has size M x N, where M is the size of the
+    inputs/targets (ie. 784 or 10 for MNIST), and N is the
+    number of examples in the set.
+
+    Arguments:
+        n_valid (int) : Number of validation examples to use.
+
+    Returns:
+        x_train (ndarray) : Training inputs.
+        t_train (ndarray) : Training targets.
+        x_test (ndarray)  : Testing inputs.
+        t_test (ndarray)  : Testing targets.
+        x_valid (ndarray) : Validation inputs. Returned if n_valid > 0.
+        t_valid (ndarray) : Validation targets. Returned if n_valid > 0.
     '''
 
     import MNIST
@@ -1734,44 +1946,48 @@ def get_MNIST(n_tune=0):
         return
  
     # normalize inputs
-    if n_tune > 0:
-        x_tune = trainfeatures[:, :n_tune]/255.0
+    if n_valid > 0:
+        x_valid = trainfeatures[:, :n_valid]/255.0
          
-    x_train = trainfeatures[:, n_tune:]/255.0
+    x_train = trainfeatures[:, n_valid:]/255.0
     x_test   = testfeatures/255.0
  
-    n_train = trainlabels.size - n_tune
+    n_train = trainlabels.size - n_valid
  
     # generate target vectors
-    if n_tune > 0:
-        t_tune = np.zeros((10, n_tune))
-        for i in range(n_tune):
-            t_tune[int(trainlabels[i]), i] = 1
+    if n_valid > 0:
+        t_valid = np.zeros((10, n_valid))
+        for i in range(n_valid):
+            t_valid[int(trainlabels[i]), i] = 1
  
     t_train = np.zeros((10, n_train))
     for i in xrange(n_train):
-        t_train[int(trainlabels[n_tune + i]), i] = 1
+        t_train[int(trainlabels[n_valid + i]), i] = 1
  
     n_test = testlabels.size
     t_test = np.zeros((10, n_test))
     for i in xrange(n_test):
         t_test[int(testlabels[i]), i] = 1
  
-    if n_tune > 0:
-        return x_train, x_test, x_tune, t_train, t_test, t_tune
+    if n_valid > 0:
+        return x_train, t_train, x_test, t_test, x_valid, t_valid
     else:
-        return x_train, x_test, t_train, t_test
+        return x_train, t_train, x_test, t_test
 
 def shuffle_arrays(*args):
-    p = np.random.permutation(args[0].shape[1])
-    return (a[:, p] for a in args)
+    '''
+    Shuffle multiple arrays using the same random permutation.
 
-def shiftInPlace(l, n):
-    n = n % len(l)
-    head = l[:n]
-    del l[:n]
-    l.extend(head)
-    return l
+    Arguments:
+        args (tuple of ndarrays) : Arrays to shuffle.
+
+    Returns:
+        results (tuple of ndarrays) : Shuffled arrays.
+    '''
+
+    p = np.random.permutation(args[0].shape[1])
+    results = (a[:, p] for a in args)
+    return results
 
 # --- Misc. --- #
 
@@ -1779,10 +1995,13 @@ def plot_weights(W_list, save_dir=None, suffix=None, normalize=False):
     '''
     Plots receptive fields given by weight matrices in W_list.
 
-    W_list:    list of weight matrices (numpy arrays) to plot
-    save_dir:  specifies a directory in which to save the plot.
-    suffix:    suffix to add to the end of the filename of the plot.
-    normalize: whether to normalize each receptive field.
+    Arguments:
+        W_list (list of ndarrays) : List of weight matrices to plot.
+        save_dir (string)         : Directory in which to save the plot.
+        suffix (string)           : Suffix to add to the end of the filename of the plot.
+        normalize (bool)          : Whether to normalize each receptive field. If True,
+                                    the vmin and vmax of each receptive field subplot will
+                                    be independent from the vmin and vmax of the other subplots.
     '''
 
     def prime_factors(n):
