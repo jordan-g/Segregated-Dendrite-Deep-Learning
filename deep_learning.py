@@ -523,19 +523,23 @@ class Network:
             # calculate averages at the end of the target phase
             calc_averages = time == l_t_phase - 1
 
+            # calculate backprop angle at the end of the target phase
+            calc_E_bp = record_backprop_angle and time == l_t_phase - 1
+
             # do a target pass
             self.out_t(calc_averages=calc_averages)
 
-            for m in xrange(self.M-1, -1, -1):
-                burst_indices = np.nonzero(time == self.burst_times[m][training_example_index])
+            if use_rand_burst_times:
+                for m in xrange(self.M-1, -1, -1):
+                    burst_indices = np.nonzero(time == self.burst_times[m][training_example_index])
 
-                # update weights
-                self.l[m].update_W(burst_indices=burst_indices)
+                    # update weights
+                    self.l[m].update_W(burst_indices=burst_indices, calc_E_bp=calc_E_bp)
 
-                if update_backward_weights:
-                    # update backward weights
-                    if m < self.M-1:
-                        self.l[m].update_Y(burst_indices=burst_indices)
+                    if update_backward_weights:
+                        # update backward weights
+                        if m < self.M-1:
+                            self.l[m].update_Y(burst_indices=burst_indices, calc_E_bp=calc_E_bp)
 
             if record_voltages and training:
                 # record voltages for this timestep
@@ -544,6 +548,18 @@ class Network:
                         self.A_hists[m][time, :] = self.l[m].A[:, 0]
                     self.B_hists[m][time, :] = self.l[m].B[:, 0]
                     self.C_hists[m][time, :] = self.l[m].C[:, 0]
+
+        if not use_rand_burst_times:
+            for m in xrange(self.M-1, -1, -1):
+                burst_indices = np.arange(self.n[m])
+
+                # update weights
+                self.l[m].update_W(burst_indices=burst_indices, calc_E_bp=True)
+
+                if update_backward_weights:
+                    # update backward weights
+                    if m < self.M-1:
+                        self.l[m].update_Y(burst_indices=burst_indices, calc_E_bp=True)
 
         if record_loss:
             self.loss = ((self.l[-1].average_phi_C_t - phi(self.l[-1].average_C_f)) ** 2).mean()
@@ -728,7 +744,7 @@ class Network:
                 self.prev_full_test_errs   = np.load(os.path.join(self.simulation_path, "full_test_errors.npy"))
                 self.prev_quick_test_errs  = np.load(os.path.join(self.simulation_path, "quick_test_errors.npy"))
 
-                if record_backprop_angle:
+                if record_backprop_angle and not use_backprop:
                     self.prev_bp_angles = np.load(os.path.join(self.simulation_path, "bp_angles.npy"))
 
                 if record_loss:
@@ -805,7 +821,7 @@ class Network:
             self.J_betas = []
             self.J_gammas = []
 
-        if record_backprop_angle:
+        if record_backprop_angle and not use_backprop:
             # initialize backprop angles recording array
             if self.M > 1:
                 self.bp_angles = np.zeros(n_epochs*n_training_examples)
@@ -871,7 +887,7 @@ class Network:
 
             # generate arrays of burst times (time until burst from start of target phase) for individual neurons
             if use_rand_burst_times:
-                self.burst_times = [ np.zeros((n_training_examples, self.n[m])) + l_t_phases[k*n_training_examples:(k+1)*n_training_examples, np.newaxis] - 1 - np.minimum(np.abs(np.random.normal(0, 5, size=(n_training_examples, self.n[m])).astype(int)), 15) for m in range(self.M) ]
+                self.burst_times = [ np.zeros((n_training_examples, self.n[m])) + l_t_phases[k*n_training_examples:(k+1)*n_training_examples, np.newaxis] - 1 - np.minimum(np.abs(np.random.normal(0, 3, size=(n_training_examples, self.n[m])).astype(int)), 10) for m in range(self.M) ]
             else:
                 self.burst_times = [ np.zeros((n_training_examples, self.n[m])) + l_t_phases[k*n_training_examples:(k+1)*n_training_examples, np.newaxis] - 1 for m in range(self.M) ]
 
@@ -962,10 +978,10 @@ class Network:
                         fig.canvas.draw()
                         fig.canvas.flush_events()
 
-                if record_backprop_angle:
+                if record_backprop_angle and not use_backprop:
                     # get backprop angle
                     if self.M > 1:
-                        bp_angle = np.arccos(np.sum(self.l[0].delta_b_bp * self.l[0].delta_b) / (np.linalg.norm(self.l[0].delta_b_bp)*np.linalg.norm(self.l[0].delta_b.T)))*180.0/np.pi
+                        bp_angle = np.arccos(np.sum(self.l[0].delta_b_bp * self.l[0].delta_b_full) / (np.linalg.norm(self.l[0].delta_b_bp)*np.linalg.norm(self.l[0].delta_b_full.T)))*180.0/np.pi
                         self.bp_angles[k*n_training_examples + n] = bp_angle
 
                 if plot_eigvals and record_eigvals and (n+1) % 100 == 0:
@@ -1044,7 +1060,7 @@ class Network:
                                 quick_test_errs = self.quick_test_errs[:(k+1)*int(n_training_examples/1000)+1]
                                 full_test_errs  = self.full_test_errs[:k+2]
 
-                                if record_backprop_angle:
+                                if record_backprop_angle and not use_backprop:
                                     bp_angles = self.bp_angles[:(k+1)*n_training_examples]
 
                                 if record_loss:
@@ -1071,7 +1087,7 @@ class Network:
                                 if n == n_training_examples - 1:
                                     full_test_errs = np.concatenate([self.prev_full_test_errs, self.full_test_errs[:k+1]], axis=0)
 
-                                if record_backprop_angle:
+                                if record_backprop_angle and not use_backprop:
                                     bp_angles = np.concatenate([self.prev_bp_angles, self.bp_angles[:(k+1)*n_training_examples]], axis=0)
 
                                 if record_loss:
@@ -1103,7 +1119,7 @@ class Network:
                                 # save weights
                                 self.save_weights(self.simulation_path, prefix="epoch_{}_".format(self.latest_epoch + 1 + k))
 
-                            if record_backprop_angle:
+                            if record_backprop_angle and not use_backprop:
                                 if self.M > 1:
                                     # save backprop angles
                                     np.save(os.path.join(self.simulation_path, "bp_angles.npy"), bp_angles)
@@ -1344,30 +1360,32 @@ class hiddenLayer(Layer):
             self.average_PSP_A_f *= 0
             self.average_PSP_A_t *= 0
 
-    def update_W(self, burst_indices):
+    def update_W(self, burst_indices, calc_E_bp=False):
         if not use_backprop:
-            self.E = (alpha(np.mean(self.A_hist, axis=-1)[:, np.newaxis]) - alpha(self.average_A_f))*-k_B*deriv_phi(self.average_C_f)
+            self.E = (alpha(np.mean(self.A_hist[burst_indices], axis=-1)[:, np.newaxis]) - alpha(self.average_A_f[burst_indices]))*-k_B*deriv_phi(self.average_C_f[burst_indices])
 
-            if record_backprop_angle:
-                self.E_bp = np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*deriv_phi(self.average_C_f)
+            if record_backprop_angle and not use_backprop and calc_E_bp:
+                self.E_full = (alpha(np.mean(self.A_hist, axis=-1)[:, np.newaxis]) - alpha(self.average_A_f))*-k_B*deriv_phi(self.average_C_f)
+                self.E_bp   = (np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*deriv_phi(self.average_C_f))
         else:
-            self.E    = np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*deriv_phi(self.average_C_f)
-            self.E_bp = self.E
+            self.E_bp   = (np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*deriv_phi(self.average_C_f))
+            self.E      = self.E_bp[burst_indices]
 
-        if record_backprop_angle:
-            self.delta_b_bp = self.E_bp
+        if record_backprop_angle and (not use_backprop) and calc_E_bp:
+            self.delta_b_bp   = self.E_bp
+            self.delta_b_full = self.E_full
 
         self.delta_W = np.dot(self.E, self.average_PSP_B_f.T)
-        self.net.W[self.m][burst_indices] += -self.net.f_etas[self.m]*P_hidden*self.delta_W[burst_indices]
+        self.net.W[self.m][burst_indices] += -self.net.f_etas[self.m]*P_hidden*self.delta_W
 
         self.delta_b = self.E
-        self.net.b[self.m][burst_indices] += -self.net.f_etas[self.m]*P_hidden*self.delta_b[burst_indices]
+        self.net.b[self.m][burst_indices] += -self.net.f_etas[self.m]*P_hidden*self.delta_b
 
     def update_Y(self, burst_indices):
-        E_inv = (phi(self.average_C_f) - phi(self.average_A_f))*-deriv_phi(self.average_A_f)
+        E_inv = (phi(self.average_C_f[burst_indices]) - phi(self.average_A_f[burst_indices]))*-deriv_phi(self.average_A_f[burst_indices])
 
         self.delta_Y = np.dot(E_inv, self.average_PSP_A_f.T)
-        self.net.Y[self.m] += -self.net.b_etas[self.m]*self.delta_Y[burst_indices]
+        self.net.Y[self.m][burst_indices] += -self.net.b_etas[self.m]*self.delta_Y
 
     def update_A(self, b_input):
         if use_spiking_feedback:
@@ -1494,17 +1512,17 @@ class finalLayer(Layer):
 
         self.integration_counter = 0
 
-    def update_W(self, burst_indices):
-        self.E = (np.mean(self.phi_C_hist, axis=-1)[:, np.newaxis] - phi(self.average_C_f))*-k_D*deriv_phi(self.average_C_f)
+    def update_W(self, burst_indices, calc_E_bp=False):
+        self.E = (np.mean(self.phi_C_hist[burst_indices], axis=-1)[:, np.newaxis] - phi(self.average_C_f[burst_indices]))*-k_D*deriv_phi(self.average_C_f[burst_indices])
 
-        if use_backprop or record_backprop_angle:
-            self.E_bp = self.E
+        if use_backprop or (record_backprop_angle and calc_E_bp):
+            self.E_bp = (np.mean(self.phi_C_hist, axis=-1)[:, np.newaxis] - phi(self.average_C_f))*-k_D*deriv_phi(self.average_C_f)
 
         self.delta_W = np.dot(self.E, self.average_PSP_B_f.T)
-        self.net.W[self.m][burst_indices] += -self.net.f_etas[self.m]*P_final*self.delta_W[burst_indices]
+        self.net.W[self.m][burst_indices] += -self.net.f_etas[self.m]*P_final*self.delta_W
 
         self.delta_b = self.E
-        self.net.b[self.m][burst_indices] += -self.net.f_etas[self.m]*P_final*self.delta_b[burst_indices]
+        self.net.b[self.m][burst_indices] += -self.net.f_etas[self.m]*P_final*self.delta_b
 
     def update_B(self, f_input):
         if use_spiking_feedforward:
