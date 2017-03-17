@@ -524,7 +524,7 @@ class Network:
             calc_averages = time == l_t_phase - 1
 
             # do a target pass
-            self.out_t(training=training, calc_averages=calc_averages)
+            self.out_t(calc_averages=calc_averages)
 
             for m in xrange(self.M-1, -1, -1):
                 burst_indices = np.nonzero(time == self.burst_times[m][training_example_index])
@@ -626,9 +626,6 @@ class Network:
         
         # get array of total length of both phases for all training examples
         l_phases_tot = l_f_phases + l_t_phases
-
-        # don't record voltages if we're not saving the simulation
-        record_voltages = record_voltages and save_simulation
 
         # initialize input spike history
         self.x_hist = np.zeros((self.n_in, mem))
@@ -911,7 +908,7 @@ class Network:
                     self.C_hists     = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M)]
 
                 # do forward & target phases
-                self.f_phase(self.x, None, training=True, record_voltages=record_voltages)
+                self.f_phase(self.x, None, training=True)
 
                 if record_training_error:
                     sel_num = np.argmax(np.mean(self.l[-1].average_C_f.reshape(-1, self.n_neurons_per_category), axis=-1))
@@ -923,7 +920,7 @@ class Network:
                     if sel_num == target_num:
                         num_correct += 1
 
-                self.t_phase(self.x, self.t.repeat(self.n_neurons_per_category, axis=0), n, training=True, record_voltages=record_voltages)
+                self.t_phase(self.x, self.t.repeat(self.n_neurons_per_category, axis=0), n, training=True)
 
                 if record_loss:
                     self.losses[k*n_training_examples + n] = self.loss
