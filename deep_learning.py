@@ -285,7 +285,7 @@ class Network:
                 else:
                     self.Y[m] = W_above
 
-    def init_layers(self, n):
+    def init_layers(self):
         '''
         Create the layers of the network.
         '''
