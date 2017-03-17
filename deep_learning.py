@@ -55,10 +55,11 @@ record_loss             = True  # record final layer loss during training
 record_training_error   = True  # record training error during training
 record_training_labels  = True  # record labels of images that were shown during training
 record_burst_times      = False # record burst firing times for each neuron across training
+record_voltages         = False # record voltages of neurons during training (huge arrays for long simulations!)
 
 # --- Jacobian testing --- #
 record_eigvals          = False # record maximum eigenvalues for Jacobians
-record_matrices         = False # record Jacobian product & weight product matrices (huge arrays for long simulations -- careful)
+record_matrices         = False # record Jacobian product & weight product matrices (huge arrays for long simulations!)
 plot_eigvals            = False # dynamically plot maximum eigenvalues for Jacobians
 
 default_simulations_folder = 'Simulations/' # folder in which to save simulations (edit accordingly)
@@ -137,6 +138,10 @@ kappas = np.flipud(get_kappas(mem))[:, np.newaxis] # initialize kappas array
 
 class Network:
     def __init__(self, n):
+        '''
+        Initialize the network.
+        '''
+
         if type(n) == int:
             n = (n,)
 
@@ -153,7 +158,7 @@ class Network:
 
         self.x_hist = None # history of input spikes
 
-        self.last_epoch = None # last epoch of simulation
+        self.latest_epoch = None # last epoch of simulation
 
         print("Creating network with {} layers.".format(self.M))
         print("--------------------------------")
@@ -162,6 +167,10 @@ class Network:
         self.init_layers()
 
     def init_weights(self):
+        '''
+        Initialize the weights of the network.
+        '''
+
         if use_weight_optimization:
             # initial weight optimization parameters
             V_avg = 3                  # desired average of dendritic potential
@@ -238,6 +247,10 @@ class Network:
                 self.Y[m] *= 5
 
     def make_weights_symmetric(self):
+        '''
+        Make the feedback weights in the network symmetric to (transposes of) the feedforward weights.
+        '''
+
         if use_broadcast:
             for m in xrange(self.M-2, -1, -1):
                 # make a copy if we're altering the feedback weights after
@@ -272,7 +285,11 @@ class Network:
                 else:
                     self.Y[m] = W_above
 
-    def init_layers(self):
+    def init_layers(self, n):
+        '''
+        Create the layers of the network.
+        '''
+
         # initialize layers list
         self.l = []
 
@@ -286,7 +303,14 @@ class Network:
             self.l.append(finalLayer(net=self, m=self.M-1, f_input_size=self.n[-2]))
 
     def out_f(self, training=False, calc_averages=True):
-        # do a forward pass through the network
+        '''
+        Perform a forward pass through the network.
+
+        Arguments:
+            training (bool)      : Whether the network is in training (True) or testing (False) mode
+            calc_averages (bool) : Whether averaged variables should be calculated by layers
+        '''
+
         if use_spiking_feedforward:
             x = self.x_hist
         else:
@@ -350,7 +374,15 @@ class Network:
                     else:
                         self.l[-1].out_f(self.l[-2].phi_C, None, calc_averages=calc_averages)
 
-    def out_t(self, training=False, calc_averages=True):
+    def out_t(self, calc_averages=True):
+        '''
+        Perform a target phase pass through the network. This is the same as a forward phase pass,
+        but with a target introduced at the top layer.
+
+        Arguments:
+            calc_averages (bool) : Whether averaged variables should be calculated by layers
+        '''
+
         # same as forward pass, but with a target introduced at the top layer
         if use_spiking_feedforward:
             x = self.x_hist
@@ -415,8 +447,17 @@ class Network:
                     else:
                         self.l[-1].out_t(self.l[-2].phi_C, self.t, calc_averages=calc_averages)
 
-    def f_phase(self, x, t, training=False, record_voltages=False):
-        if record_voltages:
+    def f_phase(self, x, t, training=False):
+        '''
+        Perform a forward phase.
+
+        Arguments:
+            x (ndarray)     : Input array of size (X, 1) where X is the size of the input, eg. (784, 1)
+            t (ndarray)     : Target array of size (T, 1) where T is the size of the target, eg. (10, 1)
+            training (bool) : Whether the network is in training (True) or testing (False) mode
+        '''
+
+        if record_voltages and training:
             # initialize voltage arrays
             self.A_hists = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M-1) ]
             self.B_hists = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M) ]
@@ -432,7 +473,7 @@ class Network:
             # do a forward pass
             self.out_f(training=training, calc_averages=calc_averages)
 
-            if record_voltages:
+            if record_voltages and training:
                 # record voltages for this timestep
                 for m in xrange(self.M):
                     if m != self.M-1:
@@ -448,7 +489,7 @@ class Network:
             self.J_betas.append(np.multiply(deriv_phi(self.l[-1].average_C_f), k_D*self.W[-1]))
             self.J_gammas.append(np.multiply(deriv_alpha(np.dot(self.Y[-2], phi(self.l[-1].average_C_f)) + self.c[-2]), self.Y[-2]))
 
-        if record_voltages and self.simulation_path:
+        if record_voltages and training:
             # append voltages to files
             for m in xrange(self.M):
                 if m != self.M-1:
@@ -459,15 +500,21 @@ class Network:
                 with open(os.path.join(self.simulation_path, 'C_hist_{}.csv'.format(m)), 'a') as C_hist_file:
                     np.savetxt(C_hist_file, self.C_hists[m])
 
-    def t_phase(self, x, t, training_example_index, training=False, record_voltages=False, upd_b_weights=False):
-        if record_voltages:
+    def t_phase(self, x, t, training_example_index, training=False):
+        '''
+        Perform a target phase.
+
+        Arguments:
+            x (ndarray)     : Input array of size (X, 1) where X is the size of the input, eg. (784, 1)
+            t (ndarray)     : Target array of size (T, 1) where T is the size of the target, eg. (10, 1)
+            training (bool) : Whether the network is in training (True) or testing (False) mode
+        '''
+
+        if record_voltages and training:
             # initialize voltage arrays
             self.A_hists = [ np.zeros((l_t_phase, self.l[m].size)) for m in xrange(self.M-1)]
             self.B_hists = [ np.zeros((l_t_phase, self.l[m].size)) for m in xrange(self.M)]
             self.C_hists = [ np.zeros((l_t_phase, self.l[m].size)) for m in xrange(self.M)]
-
-        # update target
-        self.t = t
 
         for time in xrange(l_t_phase):
             # update input history
@@ -485,12 +532,12 @@ class Network:
                 # update weights
                 self.l[m].update_W(burst_indices=burst_indices)
 
-                if upd_b_weights:
+                if update_backward_weights:
                     # update backward weights
                     if m < self.M-1:
                         self.l[m].update_Y(burst_indices=burst_indices)
 
-            if record_voltages:
+            if record_voltages and training:
                 # record voltages for this timestep
                 for m in xrange(self.M):
                     if m != self.M-1:
@@ -512,8 +559,8 @@ class Network:
                 self.l[m].average_phi_C_f *= 0
                 self.l[m].average_phi_C_t *= 0
             else:
-                self.l[m].average_A_f *= 0
-                self.l[m].average_A_t *= 0
+                self.l[m].average_A_f     *= 0
+                self.l[m].average_A_t     *= 0
                 self.l[m].average_phi_C_f *= 0
                 if update_backward_weights:
                     self.l[m].average_PSP_A_f *= 0
@@ -531,7 +578,7 @@ class Network:
                 # increase magnitude of surviving weights
                 self.Y[m] *= 5
 
-        if record_voltages and self.simulation_path:
+        if record_voltages and training:
             # append voltages to files
             for m in xrange(self.M):
                 if m != self.M-1:
@@ -542,12 +589,31 @@ class Network:
                 with open(os.path.join(self.simulation_path, 'C_hist_{}.csv'.format(m)), 'a') as C_hist_file:
                     np.savetxt(C_hist_file, self.C_hists[m])
 
-    def train(self, f_etas, b_etas, n_epochs, n_training_examples, save_simulation, simulations_folder=default_simulations_folder, folder_name="", overwrite=False, exp_notes=None, record_voltages=False, last_epoch=-1):
+    def train(self, f_etas, b_etas, n_epochs, n_training_examples, save_simulation, simulations_folder=default_simulations_folder, folder_name="", overwrite=False, simulation_notes=None, latest_epoch=-1):
+        '''
+        Train the network. Checkpoints will be saved at the end of every epoch if save_simulation is True.
+
+        Arguments:
+            f_etas (tuple)              : Tuple containing learning rates for each layer's feedforward weights, eg. (0.21, 0.21)
+            b_etas (tuple/None)         : Tuple containing learning rates for each layer's feedback weights.
+                                          If None, no backward weight updates occur.
+            n_epochs (int)              : Number of epochs of training
+            n_training_examples (int)   : Number of training examples per epoch
+            save_simulation (bool)      : Whether to save data from this simulation
+            simulations_folder (string) : Name of the parent folder that can contain data from multiple simulations
+            folder_name (string)        : Name of the subfolder in the parent folder that will contain data from this simulation
+            overwrite (bool)            : Whether to overwrite the folder given by folder_name if it already exists
+            simulation_notes (string)   : Notes about this simulation to save in the parameters text file that will be generated
+            latest_epoch (int)          : The latest epoch of this simulation that has been completed.
+                                          If < 0, this is a new simulation.
+                                          If >= 0, this is a continuation of a previously-started simulation.
+        '''
+
         print("Starting training.\n")
 
-        if self.last_epoch == None:
+        if self.latest_epoch == None:
             # set last completed epoch
-            self.last_epoch = last_epoch
+            self.latest_epoch = latest_epoch
 
         if use_rand_phase_lengths:
             # generate phase lengths for all training examples
@@ -583,7 +649,7 @@ class Network:
             # make simulation directory
             if not os.path.exists(self.simulation_path):
                 os.makedirs(self.simulation_path)
-            elif self.last_epoch < 0 and overwrite == False:
+            elif self.latest_epoch < 0 and overwrite == False:
                 print("Error: Simulation directory \"{}\" already exists.".format(self.simulation_path))
                 return
             else:
@@ -613,6 +679,7 @@ class Network:
                 'use_weight_optimization': use_weight_optimization,
                 'record_backprop_angle'  : record_backprop_angle,
                 'record_loss'            : record_loss,
+                'record_voltages'        : record_voltages,
                 'record_eigvals'         : record_eigvals,
                 'record_matrices'        : record_matrices,
                 'plot_eigvals'           : plot_eigvals,
@@ -642,15 +709,15 @@ class Network:
             }
 
             # save simulation params
-            if self.last_epoch < 0:
+            if self.latest_epoch < 0:
                 with open(os.path.join(self.simulation_path, 'simulation.txt'), 'w') as simulation_file:
                     print("Simulation done on {}.{}.{}-{}.{}.".format(sim_start_time.year,
                                                                      sim_start_time.month,
                                                                      sim_start_time.day,
                                                                      sim_start_time.hour,
                                                                      sim_start_time.minute), file=simulation_file)
-                    if exp_notes:
-                        print(exp_notes, file=simulation_file)
+                    if simulation_notes:
+                        print(simulation_notes, file=simulation_file)
                     print("Start time: {}".format(sim_start_time), file=simulation_file)
                     print("-----------------------------", file=simulation_file)
                     for key, value in sorted(params.items()):
@@ -687,11 +754,11 @@ class Network:
         self.f_etas = f_etas
         self.b_etas = b_etas
 
-        if save_simulation and self.last_epoch < 0:
+        if save_simulation and self.latest_epoch < 0:
             # save initial weights
             self.save_weights(self.simulation_path, prefix='initial_')
 
-        if self.last_epoch < 0:
+        if self.latest_epoch < 0:
             # initialize full test error recording array
             self.full_test_errs  = np.zeros(n_epochs + 1)
 
@@ -716,7 +783,7 @@ class Network:
             if record_matrices:
                 self.jacobian_prod_matrices = np.zeros((n_epochs*n_training_examples, self.n[-1], self.n[-1]))
 
-            if self.last_epoch < 0:
+            if self.latest_epoch < 0:
                 self.max_weight_eigvals = np.zeros(n_epochs*n_training_examples + 1)
                 if record_matrices:
                     self.weight_prod_matrices = np.zeros((n_epochs*n_training_examples + 1, self.n[-1], self.n[-1]))
@@ -732,7 +799,7 @@ class Network:
             U = np.dot(self.W[-1], self.Y[-2])
             p = np.dot((I - U).T, I - U)
 
-            if self.last_epoch < 0:
+            if self.latest_epoch < 0:
                 if record_matrices:
                     self.weight_prod_matrices[0] = U
                 self.max_weight_eigvals[0] = np.amax(np.real(np.linalg.eigvals(p)))
@@ -746,9 +813,9 @@ class Network:
             if self.M > 1:
                 self.bp_angles = np.zeros(n_epochs*n_training_examples)
 
-        if self.last_epoch < 0:
+        if self.latest_epoch < 0:
             # do an initial weight test
-            print("Start of epoch {}.".format(self.last_epoch + 1))
+            print("Start of epoch {}.".format(self.latest_epoch + 1))
 
             # set start time
             start_time = time.time()
@@ -782,7 +849,7 @@ class Network:
                     print(line, file=test_err_file)
         else:
             # do an initial weight test
-            print("Start of epoch {}.\n".format(self.last_epoch + 1))
+            print("Start of epoch {}.\n".format(self.latest_epoch + 1))
 
         # initialize input spike history
         self.x_hist   = np.zeros((self.n_in, mem))
@@ -830,7 +897,7 @@ class Network:
 
                 # print every 100 examples
                 if (n+1) % 100 == 0:
-                    sys.stdout.write("\x1b[2K\rEpoch {0}, example {1}/{2}.".format(self.last_epoch + 1 + k, n+1, n_training_examples))
+                    sys.stdout.write("\x1b[2K\rEpoch {0}, example {1}/{2}.".format(self.latest_epoch + 1 + k, n+1, n_training_examples))
                     sys.stdout.flush()
 
                 # get training example data
@@ -856,7 +923,7 @@ class Network:
                     if sel_num == target_num:
                         num_correct += 1
 
-                self.t_phase(self.x, self.t.repeat(self.n_neurons_per_category, axis=0), n, training=True, record_voltages=record_voltages, upd_b_weights=update_backward_weights)
+                self.t_phase(self.x, self.t.repeat(self.n_neurons_per_category, axis=0), n, training=True, record_voltages=record_voltages)
 
                 if record_loss:
                     self.losses[k*n_training_examples + n] = self.loss
@@ -877,7 +944,7 @@ class Network:
                     # get max eigenvalues for weights
                     U = np.dot(k_D*self.W[-1], self.Y[-2])
                     p = np.dot((I - U).T, I - U)
-                    if self.last_epoch < 0:
+                    if self.latest_epoch < 0:
                         if record_matrices:
                             self.weight_prod_matrices[k*n_training_examples + n + 1] = U
                         self.max_weight_eigvals[k*n_training_examples + n + 1] = np.amax(np.linalg.eigvals(p))
@@ -934,9 +1001,9 @@ class Network:
                         # we're partway through an epoch; do a quick weight test
                         test_err = self.test_weights(n_test=n_quick_test)
 
-                        sys.stdout.write("\x1b[2K\rEpoch {0}, example {1}/{2}. QE: {3:05.2f}%. ".format(self.last_epoch + 1 + k, n+1, n_training_examples, test_err))
+                        sys.stdout.write("\x1b[2K\rEpoch {0}, example {1}/{2}. QE: {3:05.2f}%. ".format(self.latest_epoch + 1 + k, n+1, n_training_examples, test_err))
 
-                        if self.last_epoch < 0:
+                        if self.latest_epoch < 0:
                             self.quick_test_errs[(k+1)*int(n_training_examples/1000)] = test_err
                         else:
                             self.quick_test_errs[(k+1)*int(n_training_examples/1000) - 1] = test_err
@@ -951,7 +1018,7 @@ class Network:
 
                         sys.stdout.write("\x1b[2K\rFE: {0:05.2f}%. ".format(test_err))
 
-                        if self.last_epoch < 0:
+                        if self.latest_epoch < 0:
                             self.full_test_errs[k+1] = test_err
                             self.quick_test_errs[(k+1)*int(n_training_examples/1000)] = test_err
                         else:
@@ -975,7 +1042,7 @@ class Network:
                         # save recording arrays
                         if save_simulation:
                             print("Saving...", end="")
-                            if self.last_epoch < 0:
+                            if self.latest_epoch < 0:
                                 # we are running a new simulation
                                 quick_test_errs = self.quick_test_errs[:(k+1)*int(n_training_examples/1000)+1]
                                 full_test_errs  = self.full_test_errs[:k+2]
@@ -1030,14 +1097,14 @@ class Network:
                                         weight_prod_matrices   = np.concatenate([self.prev_weight_prod_matrices, self.weight_prod_matrices[:(k+1)*n_training_examples]], axis=0)
 
                             # save quick test error
-                            np.save(os.path.join(self.simulation_path, "quick_test_errors.npy".format(self.last_epoch)), quick_test_errs)
+                            np.save(os.path.join(self.simulation_path, "quick_test_errors.npy".format(self.latest_epoch)), quick_test_errs)
 
                             if n == n_training_examples - 1:
                                 # save test error
                                 np.save(os.path.join(self.simulation_path, "full_test_errors.npy"), full_test_errs)
 
                                 # save weights
-                                self.save_weights(self.simulation_path, prefix="epoch_{}_".format(self.last_epoch + 1 + k))
+                                self.save_weights(self.simulation_path, prefix="epoch_{}_".format(self.latest_epoch + 1 + k))
 
                             if record_backprop_angle:
                                 if self.M > 1:
@@ -1088,6 +1155,14 @@ class Network:
                 print("End time: {}".format(sim_end_time), file=simulation_file)
 
     def test_weights(self, n_test=n_quick_test):
+        '''
+        Test the network's current weights on the test set. The network's layers are copied
+        and restored to their previous state after testing.
+
+        Arguments:
+            n_test (int) : The number of test examples to use.
+        '''
+
         global l_f_phase
 
         # save old length of forward phase
@@ -1108,13 +1183,15 @@ class Network:
         # shuffle testing data
         self.x_test, self.t_test = shuffle_arrays(self.x_test, self.t_test)
 
+        digits = np.arange(10)
+
         for n in xrange(n_test):
             # clear all layer variables
             for m in xrange(self.M):
                 self.l[m].clear_vars()
 
             # clear input spike history
-            self.x_hist  = np.zeros((self.n_in, mem))
+            self.x_hist *= 0
 
             # get testing example data
             self.x = self.x_test[:, n][:, np.newaxis]
@@ -1125,7 +1202,7 @@ class Network:
             sel_num = np.argmax(np.mean(self.l[-1].average_C_f.reshape(-1, self.n_neurons_per_category), axis=-1))
 
             # get the target number from testing example data
-            target_num = np.dot(np.arange(10), self.t)
+            target_num = np.dot(digits, self.t)
 
             # increment correct classification counter if they match
             if sel_num == target_num:
@@ -1153,13 +1230,15 @@ class Network:
 
         return err_rate
 
-    def plot_f_weights(self, normalize=False, save_path=None):
-        plot_weights(self.W, normalize=normalize)
-
-    def plot_b_weights(self, normalize=False, save_path=None):
-        plot_weights(self.Y, normalize=normalize)
-
     def save_weights(self, path, prefix=""):
+        '''
+        Save the network's current weights to .npy files.
+
+        Arguments:
+            path (string)   : The path of the folder in which to save the network's weights.
+            prefix (string) : A prefix to append to the filenames of the saved weights.
+        '''
+
         for m in xrange(self.M):
             np.save(os.path.join(path, prefix + "f_weights_{}.npy".format(m)), self.W[m])
             np.save(os.path.join(path, prefix + "f_bias_{}.npy".format(m)), self.b[m])
@@ -1167,6 +1246,14 @@ class Network:
             np.save(os.path.join(path, prefix + "b_bias_{}.npy".format(m)), self.c[m])
 
     def load_weights(self, path, prefix=""):
+        '''
+        Load weights from .npy files and set them to the network's weights.
+
+        Arguments:
+            path (string)   : The path of the folder from which to load the weights.
+            prefix (string) : Prefix appended to the filenames of the saved weights.
+        '''
+
         print("Loading weights from \"{}\" with prefix \"{}\".".format(path, prefix))
         print("--------------------------------")
 
@@ -1494,10 +1581,10 @@ class finalLayer(Layer):
 """                     Helper functions                      """
 # ---------------------------------------------------------------
 
-def load_simulation(last_epoch, folder_name, simulations_folder=default_simulations_folder):
+def load_simulation(latest_epoch, folder_name, simulations_folder=default_simulations_folder):
     simulation_path = os.path.join(simulations_folder, folder_name)
 
-    print("Loading simulation from \"{}\" @ epoch {}.\n".format(simulation_path, last_epoch))
+    print("Loading simulation from \"{}\" @ epoch {}.\n".format(simulation_path, latest_epoch))
 
     if not os.path.exists(simulation_path):
         print("Error: Could not find simulation folder – path does not exist.")
@@ -1536,6 +1623,7 @@ def load_simulation(last_epoch, folder_name, simulations_folder=default_simulati
     use_weight_optimization = params['use_weight_optimization']
     record_backprop_angle   = params['record_backprop_angle']
     record_loss             = params['record_loss']
+    record_voltages         = params['record_voltages']
     record_eigvals          = params['record_eigvals']
     record_matrices         = params['record_matrices']
     plot_eigvals            = params['plot_eigvals']
@@ -1565,8 +1653,8 @@ def load_simulation(last_epoch, folder_name, simulations_folder=default_simulati
 
     # create network and load weights
     net = Network(n=n)
-    net.load_weights(simulation_path, prefix="epoch_{}_".format(last_epoch))
-    net.last_epoch = last_epoch
+    net.load_weights(simulation_path, prefix="epoch_{}_".format(latest_epoch))
+    net.latest_epoch = latest_epoch
 
     return net, f_etas, b_etas, n_training_examples
 
