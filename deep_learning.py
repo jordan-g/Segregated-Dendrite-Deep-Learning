@@ -45,7 +45,7 @@ use_symmetric_weights   = False # enforce symmetric weights
 noisy_symmetric_weights = False # add noise to symmetric weights
 
 use_sparse_feedback     = False # use sparse feedback weights
-update_backward_weights = False # update backward weights
+update_feedback_weights = False # update feedback weights
 use_backprop            = False # use error backpropagation
 use_apical_conductance  = False # use attenuated conductance from apical dendrite to soma
 use_weight_optimization = True  # attempt to optimize initial weights
@@ -214,7 +214,7 @@ class Network:
                 self.W[m] = 0.1*(np.random.uniform(size=(self.n[m], N)) - 0.5)
                 self.b[m] = 1.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
 
-            # generate backward weights
+            # generate feedback weights
             if m != 0:
                 if use_broadcast:
                     if use_weight_optimization:
@@ -568,7 +568,7 @@ class Network:
             # calculate averages
             self.l[m].calc_averages(phase="target")
 
-            if update_backward_weights and m < self.M-1:
+            if update_feedback_weights and m < self.M-1:
                 # update feedback weights
                 self.l[m].update_Y()
 
@@ -591,14 +591,14 @@ class Network:
                 self.l[m].average_A_f     *= 0
                 self.l[m].average_A_t     *= 0
                 self.l[m].average_phi_C_f *= 0
-                if update_backward_weights:
+                if update_feedback_weights:
                     self.l[m].average_PSP_A_f *= 0
 
         if use_symmetric_weights:
             # make feedback weights symmetric to new feedforward weights
             self.make_weights_symmetric()
 
-        if use_sparse_feedback and (use_symmetric_weights or update_backward_weights):
+        if use_sparse_feedback and (use_symmetric_weights or update_feedback_weights):
             for m in xrange(self.M-1):
                 # zero out the inactive weights
                 self.Y[m].ravel()[self.Y_dropout_indices[m]] = 0
@@ -695,7 +695,7 @@ class Network:
                 'use_symmetric_weights'  : use_symmetric_weights,
                 'noisy_symmetric_weights': noisy_symmetric_weights,
                 'use_sparse_feedback'    : use_sparse_feedback,
-                'update_backward_weights': update_backward_weights,
+                'update_feedback_weights': update_feedback_weights,
                 'use_backprop'           : use_backprop,
                 'use_apical_conductance' : use_apical_conductance,
                 'use_weight_optimization': use_weight_optimization,
@@ -1377,7 +1377,7 @@ class hiddenLayer(Layer):
 
         self.integration_counter = 0
 
-        if update_backward_weights:
+        if update_feedback_weights:
             self.average_PSP_A_f = np.zeros((self.b_input_size, 1))
 
     def clear_vars(self):
@@ -1412,7 +1412,7 @@ class hiddenLayer(Layer):
 
         self.integration_counter = 0
 
-        if update_backward_weights:
+        if update_feedback_weights:
             self.average_PSP_A_f *= 0
 
     def update_W(self):
@@ -1576,13 +1576,13 @@ class hiddenLayer(Layer):
             self.average_phi_C_f = np.mean(self.phi_C_hist, axis=-1)[:, np.newaxis]
             self.average_PSP_B_f = np.mean(self.PSP_B_hist, axis=-1)[:, np.newaxis]
 
-            if update_backward_weights:
+            if update_feedback_weights:
                 self.average_PSP_A_f = np.mean(self.PSP_A_hist, axis=-1)[:, np.newaxis]
         elif phase == "target":
             self.average_C_t     = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
             self.average_phi_C_t = np.mean(self.phi_C_hist, axis=-1)[:, np.newaxis]
 
-            if update_backward_weights:
+            if update_feedback_weights:
                 self.average_PSP_A_t = np.mean(self.PSP_A_hist, axis=-1)[:, np.newaxis]
 
 """
@@ -1812,7 +1812,7 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     global n_full_test, n_quick_test
     global use_rand_phase_lengths, use_conductances, use_broadcast, use_spiking_feedback, use_spiking_feedforward
     global use_symmetric_weights, noisy_symmetric_weights
-    global use_sparse_feedback, update_backward_weights, use_backprop, use_apical_conductance, use_weight_optimization
+    global use_sparse_feedback, update_feedback_weights, use_backprop, use_apical_conductance, use_weight_optimization
     global record_backprop_angle, record_loss, record_training_error, record_training_labels, record_burst_times, record_voltages, record_eigvals, record_matrices, plot_eigvals
     global dt, mem, integration_time
     global l_f_phase, l_t_phase, l_f_phase_test
@@ -1831,7 +1831,7 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     use_spiking_feedforward = params['use_spiking_feedforward']
     use_symmetric_weights   = params['use_symmetric_weights']
     use_sparse_feedback     = params['use_sparse_feedback']
-    update_backward_weights = params['update_backward_weights']
+    update_feedback_weights = params['update_feedback_weights']
     use_backprop            = params['use_backprop']
     use_apical_conductance  = params['use_apical_conductance']
     use_weight_optimization = params['use_weight_optimization']
