@@ -489,14 +489,13 @@ class Network:
                     self.C_hists[m][time, :] = self.l[m].C[:, 0]
 
         for m in xrange(self.M-1, -1, -1):
-            self.l[m].calc_averages(phase="forward")
-
-        if not use_rand_burst_times:
-            for m in xrange(self.M-1, -1, -1):
+            if not use_rand_burst_times:
                 burst_indices = np.arange(self.n[m])
 
                 # perform bursting
                 self.l[m].burst_f(burst_indices=burst_indices)
+
+            self.l[m].calc_averages(phase="forward")
 
         if record_eigvals:
             # calculate Jacobians & update lists of last 100 Jacobians
@@ -545,17 +544,10 @@ class Network:
 
             if use_rand_burst_times:
                 # perform bursting & weight updates
-                for m in xrange(self.M-1, -1, -1):
+                for m in xrange(self.M-2, -1, -1):
                     burst_indices = np.nonzero(time == self.burst_times_t[m][training_num])
 
-                    if m < self.M-1:
-                        self.l[m].burst_t(burst_indices=burst_indices)
-
-                        if update_backward_weights:
-                            self.l[m].update_Y(burst_indices=burst_indices, calc_E_bp=calc_E_bp)
-
-                    # update weights
-                    self.l[m].update_W(burst_indices=burst_indices, calc_E_bp=calc_E_bp)
+                    self.l[m].burst_t(burst_indices=burst_indices)
 
             if record_voltages:
                 # record voltages for this timestep
@@ -566,22 +558,21 @@ class Network:
                     self.C_hists[m][time, :] = self.l[m].C[:, 0]
 
         for m in xrange(self.M-1, -1, -1):
-            self.l[m].calc_averages(phase="target")
-
-        if not use_rand_burst_times:
-            for m in xrange(self.M-1, -1, -1):
+            if not use_rand_burst_times:
                 burst_indices = np.arange(self.n[m])
 
                 # perform bursting
                 self.l[m].burst_t(burst_indices=burst_indices)
 
-                # update weights
-                self.l[m].update_W(burst_indices=burst_indices, calc_E_bp=True)
+            # calculate averages
+            self.l[m].calc_averages(phase="target")
 
-                if update_backward_weights:
-                    # update backward weights
-                    if m < self.M-1:
-                        self.l[m].update_Y(burst_indices=burst_indices, calc_E_bp=True)
+            if update_backward_weights and m < self.M-1:
+                # update feedback weights
+                self.l[m].update_Y()
+
+            # update weights
+            self.l[m].update_W()
 
         if record_loss:
             self.loss = ((self.l[-1].average_phi_C_t - phi(self.l[-1].average_C_f)) ** 2).mean()
@@ -1426,50 +1417,38 @@ class hiddenLayer(Layer):
         if update_backward_weights:
             self.average_PSP_A_f *= 0
 
-    def update_W(self, burst_indices, calc_E_bp=False):
+    def update_W(self):
         '''
         Update feedforward weights.
-
-        Arguments:
-            burst_indices (ndarray) : Indices of neurons that are bursting.
-                                      Weights are updated only for these neurons.
-            calc_E_bp (bool)        : Whether to calculate the error prescribed by backpropagation.
-                                      True only at the end of the target phase, False otherwise.
         '''
 
         if not use_backprop:
-            self.E[burst_indices] = (self.alpha_A_t[burst_indices] - self.alpha_A_f[burst_indices])*-k_B*deriv_phi(self.average_C_f[burst_indices])
+            self.E = (self.alpha_A_t - self.alpha_A_f)*-k_B*deriv_phi(self.average_C_f)
 
             if record_backprop_angle and not use_backprop and calc_E_bp:
-                self.E_full = (self.alpha_A_t - self.alpha_A_f)*-k_B*deriv_phi(self.average_C_f)
-                self.E_bp   = (np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*deriv_phi(self.average_C_f))
+                self.E_bp = (np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*deriv_phi(self.average_C_f))
         else:
-            self.E_bp             = (np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*deriv_phi(self.average_C_f))
-            self.E[burst_indices] = self.E_bp[burst_indices]
+            self.E_bp = (np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*deriv_phi(self.average_C_f))
+            self.E    = self.E_bp
 
         if record_backprop_angle and (not use_backprop) and calc_E_bp:
-            self.delta_b_bp   = self.E_bp
-            self.delta_b_full = self.E_full
+            self.delta_b_bp = self.E_bp
 
-        self.delta_W[burst_indices] = np.dot(self.E[burst_indices], self.average_PSP_B_f.T)
-        self.net.W[self.m][burst_indices] += -self.net.f_etas[self.m]*P_hidden*self.delta_W[burst_indices]
+        self.delta_W        = np.dot(self.E, self.average_PSP_B_f.T)
+        self.net.W[self.m] += -self.net.f_etas[self.m]*P_hidden*self.delta_W
 
-        self.delta_b[burst_indices] = self.E[burst_indices]
-        self.net.b[self.m][burst_indices] += -self.net.f_etas[self.m]*P_hidden*self.delta_b[burst_indices]
+        self.delta_b        = self.E
+        self.net.b[self.m] += -self.net.f_etas[self.m]*P_hidden*self.delta_b
 
-    def update_Y(self, burst_indices):
+    def update_Y(self):
         '''
         Update feedback weights.
-
-        Arguments:
-            burst_indices (ndarray) : Indices of neurons that are bursting.
-                                      Weights are updated only for these neurons.
         '''
 
-        E_inv = (phi(self.average_C_f[burst_indices]) - phi(self.average_A_f[burst_indices]))*-deriv_phi(self.average_A_f[burst_indices])
+        E_inv = (phi(self.average_C_f) - self.alpha_A_f)*-deriv_phi(self.average_A_f)
 
-        self.delta_Y[burst_indices] = np.dot(E_inv, self.average_PSP_A_f.T)
-        self.net.Y[self.m][burst_indices] += -self.net.b_etas[self.m]*self.delta_Y
+        self.delta_Y        = np.dot(E_inv, self.average_PSP_A_f.T)
+        self.net.Y[self.m] += -self.net.b_etas[self.m]*self.delta_Y
 
     def update_A(self, b_input):
         '''
@@ -1566,7 +1545,7 @@ class hiddenLayer(Layer):
         '''
 
         # calculate average apical potentials for bursting neurons
-        self.average_A_f[burst_indices]     = np.mean(self.A_hist[burst_indices], axis=-1)[:, np.newaxis]
+        self.average_A_f[burst_indices] = np.mean(self.A_hist[burst_indices], axis=-1)[:, np.newaxis]
 
         # calculate apical calcium spike nonlinearity
         self.alpha_A_f[burst_indices] = alpha(self.average_A_f[burst_indices])
@@ -1672,27 +1651,21 @@ class finalLayer(Layer):
 
         self.integration_counter = 0
 
-    def update_W(self, burst_indices, calc_E_bp=False):
+    def update_W(self):
         '''
         Update feedforward weights.
-
-        Arguments:
-            burst_indices (ndarray) : Indices of neurons that are bursting.
-                                      Weights are updated only for these neurons.
-            calc_E_bp (bool)        : Whether to calculate the error prescribed by backpropagation.
-                                      True only at the end of the target phase, False otherwise.
         '''
 
-        self.E[burst_indices] = (np.mean(self.phi_C_hist[burst_indices], axis=-1)[:, np.newaxis] - phi(self.average_C_f[burst_indices]))*-k_D*deriv_phi(self.average_C_f[burst_indices])
+        self.E = (self.average_phi_C_t - phi(self.average_C_f))*-k_D*deriv_phi(self.average_C_f)
 
         if use_backprop or (record_backprop_angle and calc_E_bp):
-            self.E_bp = (np.mean(self.phi_C_hist, axis=-1)[:, np.newaxis] - phi(self.average_C_f))*-k_D*deriv_phi(self.average_C_f)
+            self.E_bp = (self.average_phi_C_t - phi(self.average_C_f))*-k_D*deriv_phi(self.average_C_f)
 
-        self.delta_W[burst_indices]        = np.dot(self.E[burst_indices], self.average_PSP_B_f.T)
-        self.net.W[self.m][burst_indices] += -self.net.f_etas[self.m]*P_final*self.delta_W[burst_indices]
+        self.delta_W        = np.dot(self.E, self.average_PSP_B_f.T)
+        self.net.W[self.m] += -self.net.f_etas[self.m]*P_final*self.delta_W
 
-        self.delta_b[burst_indices]        = self.E[burst_indices]
-        self.net.b[self.m][burst_indices] += -self.net.f_etas[self.m]*P_final*self.delta_b[burst_indices]
+        self.delta_b        = self.E
+        self.net.b[self.m] += -self.net.f_etas[self.m]*P_final*self.delta_b
 
     def update_B(self, f_input):
         '''
