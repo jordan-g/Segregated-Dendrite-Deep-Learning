@@ -201,7 +201,7 @@ class Network:
             else:
                 N = self.n_in
 
-            # generate forward weights & biases
+            # generate feedforward weights & biases
             if use_weight_optimization:
                 # calculate weight variables needed to get desired average & strandard deviations of somatic potentials
                 W_avg = (V_avg - b_avg)/(nu*N*V_avg)
@@ -214,22 +214,22 @@ class Network:
                 self.W[m] = 0.1*(np.random.uniform(size=(self.n[m], N)) - 0.5)
                 self.b[m] = 1.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
 
-            # generate feedback weights
+            # generate feedback weights & biases
             if m != 0:
                 if use_broadcast:
                     if use_weight_optimization:
                         self.Y[m-1] = np.dot(3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5), self.Y[m])
-                        self.c[m-1] = 0.0*np.dot(self.Y[m-1], 3.465*W_sd*(np.random.uniform(size=(self.n[-1], 1)) - 0.5))
+                        self.c[m-1] = np.dot(self.Y[m-1], 3.465*W_sd*(np.random.uniform(size=(self.n[-1], 1)) - 0.5))
                     else:
-                        self.Y[m-1] = (np.random.uniform(size=(N, self.n[-1])) - 0.5)
-                        self.c[m-1] = 0.0*(np.random.uniform(size=(N, 1)) - 0.5)
+                        self.Y[m-1] = np.random.uniform(size=(N, self.n[-1])) - 0.5
+                        self.c[m-1] = np.random.uniform(size=(N, 1)) - 0.5
                 else:
                     if use_weight_optimization:
                          self.Y[m-1] = W_avg + 3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5)
-                         self.c[m-1] = 0.0*(W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5))
+                         self.c[m-1] = W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
                     else:
-                        self.Y[m-1] = (np.random.uniform(size=(N, self.n[m])) - 0.5)
-                        self.c[m-1] = 0.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
+                        self.Y[m-1] = np.random.uniform(size=(N, self.n[m])) - 0.5
+                        self.c[m-1] = np.random.uniform(size=(self.n[m], 1)) - 0.5
 
         if use_symmetric_weights == True:
             # enforce symmetric weights
