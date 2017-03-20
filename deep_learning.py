@@ -159,7 +159,8 @@ class Network:
         self.n_in  = self.x_train.shape[0] # input size
         self.n_out = self.n[-1]            # output size
 
-        self.x_hist = None # history of input spikes
+        # initialize input spike history
+        self.x_hist = np.zeros((self.n_in, mem))
 
         self.latest_epoch = None # last epoch of simulation
 
@@ -653,9 +654,6 @@ class Network:
         
         # get array of total length of both phases for all training examples
         l_phases_tot = l_f_phases + l_t_phases
-
-        # initialize input spike history
-        self.x_hist = np.zeros((self.n_in, mem))
 
         # get current date/time and create simulation directory
         if save_simulation:
