@@ -1857,6 +1857,7 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     global g_B, g_A, g_L, g_D
     global k_B, k_D, k_I
     global P_hidden, P_final
+    global kappas
 
     n_full_test             = params['n_full_test']
     n_quick_test            = params['n_quick_test']
@@ -1908,6 +1909,8 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     net = Network(n=n)
     net.load_weights(simulation_path, prefix="epoch_{}_".format(latest_epoch))
     net.latest_epoch = latest_epoch
+
+    kappas = np.flipud(get_kappas(mem))[:, np.newaxis] # re-initialize kappas array
 
     return net, f_etas, b_etas, n_training_examples
 
