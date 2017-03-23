@@ -65,13 +65,15 @@ plot_eigvals            = False # dynamically plot maximum eigenvalues for Jacob
 default_simulations_folder = 'Simulations/' # folder in which to save simulations (edit accordingly)
 weight_cmap                = 'bone'         # color map to use for weight plotting
 
-dt               = 1.0        # time step (ms)
-mem              = int(10/dt) # spike memory (time steps) - used to limit PSP integration of past spikes (for performance)
-integration_time = int(20/dt) # time steps of integration of neuronal variables used for plasticity
+dt  = 1.0        # time step (ms)
+mem = int(10/dt) # spike memory (time steps) - used to limit PSP integration of past spikes (for performance)
 
 l_f_phase      = int(50/dt)  # length of forward phase (time steps)
 l_t_phase      = int(50/dt)  # length of target phase (time steps)
 l_f_phase_test = int(250/dt) # length of forward phase for tests (time steps)
+
+integration_time      = l_f_phase - int(30/dt)      # time steps of integration of neuronal variables used for plasticity
+integration_time_test = l_f_phase_test - int(30/dt) # time steps of integration of neuronal variables during testing
 
 if use_rand_phase_lengths:
     min_l_f_phase = l_f_phase
@@ -1203,7 +1205,7 @@ class Network:
             n_test (int) : The number of test examples to use.
         '''
 
-        global l_f_phase
+        global l_f_phase, integration_time
 
         # save old length of forward phase
         old_l_f_phase = l_f_phase
@@ -1211,7 +1213,12 @@ class Network:
         # set new length of forward phase
         l_f_phase = l_f_phase_test
 
-        # save old input spike history
+        # save old integration time
+        old_integration_time = integration_time
+
+        # set new integration time
+        integration_time = integration_time_test
+
         old_x_hist = self.x_hist
 
         # copy layer objects to be restored after testing
@@ -1224,6 +1231,10 @@ class Network:
         self.x_test, self.t_test = shuffle_arrays(self.x_test, self.t_test)
 
         digits = np.arange(10)
+
+        # create new integration recording variables
+        for m in xrange(self.M):
+            self.l[m].create_integration_vars()
 
         for n in xrange(n_test):
             # clear all layer variables
@@ -1261,6 +1272,8 @@ class Network:
 
         if old_x_hist is not None:
             self.x_hist = old_x_hist
+
+        integration_time = old_integration_time
 
         l_f_phase = old_l_f_phase
 
@@ -1383,6 +1396,13 @@ class hiddenLayer(Layer):
 
         if update_feedback_weights:
             self.average_PSP_A_f = np.zeros((self.b_input_size, 1))
+
+    def create_integration_vars(self):
+        self.A_hist     = np.zeros((self.size, integration_time))
+        self.PSP_A_hist = np.zeros((self.b_input_size, integration_time))
+        self.PSP_B_hist = np.zeros((self.f_input_size, integration_time))
+        self.C_hist     = np.zeros((self.size, integration_time))
+        self.phi_C_hist = np.zeros((self.size, integration_time))
 
     def clear_vars(self):
         '''
@@ -1630,16 +1650,26 @@ class finalLayer(Layer):
 
         self.integration_counter = 0
 
+    def create_integration_vars(self):
+        self.PSP_B_hist = np.zeros((self.f_input_size, integration_time))
+        self.C_hist     = np.zeros((self.size, integration_time))
+        self.phi_C_hist = np.zeros((self.size, integration_time))
+
+        self.integration_counter = 0
+
     def clear_vars(self):
         '''
         Clear all layer variables.
         '''
 
-        self.B      *= 0
-        self.I      *= 0
-        self.C      *= 0
-        self.phi_C  *= 0
-        self.S_hist *= 0
+        self.B          *= 0
+        self.I          *= 0
+        self.C          *= 0
+        self.phi_C      *= 0
+        self.S_hist     *= 0
+        self.PSP_B_hist *= 0
+        self.C_hist     *= 0
+        self.phi_C_hist *= 0
 
         self.E       *= 0
         self.delta_W *= 0
