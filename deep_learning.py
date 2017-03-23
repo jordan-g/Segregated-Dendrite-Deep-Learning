@@ -35,7 +35,7 @@ n_quick_test = 100   # number of examples to use for quick tests (every 1000 exa
 # ---------------------------------------------------------------
 
 use_rand_phase_lengths  = True  # use random phase lengths (chosen from Wald distribution)
-use_rand_burst_times    = True  # randomly sample each neuron's bursting/plasticity time
+use_rand_burst_times    = True  # randomly sample each neuron's bursting time
 use_conductances        = True  # use conductances between dendrites and soma
 use_broadcast           = True  # use broadcast (ie. feedback to all layers comes from output layer)
 use_spiking_feedback    = True  # use spiking feedback
@@ -221,15 +221,15 @@ class Network:
                         self.Y[m-1] = np.dot(3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5), self.Y[m])
                         self.c[m-1] = np.dot(self.Y[m-1], 3.465*W_sd*(np.random.uniform(size=(self.n[-1], 1)) - 0.5))
                     else:
-                        self.Y[m-1] = np.random.uniform(size=(N, self.n[-1])) - 0.5
-                        self.c[m-1] = np.random.uniform(size=(N, 1)) - 0.5
+                        self.Y[m-1] = 1.0*(np.random.uniform(size=(N, self.n[-1])) - 0.5)
+                        self.c[m-1] = 1.0*(np.random.uniform(size=(N, 1)) - 0.5)
                 else:
                     if use_weight_optimization:
                          self.Y[m-1] = W_avg + 3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5)
-                         self.c[m-1] = W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
+                         self.c[m-1] = (W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5))
                     else:
-                        self.Y[m-1] = np.random.uniform(size=(N, self.n[m])) - 0.5
-                        self.c[m-1] = np.random.uniform(size=(self.n[m], 1)) - 0.5
+                        self.Y[m-1] = 1.0*(np.random.uniform(size=(N, self.n[m])) - 0.5)
+                        self.c[m-1] = 1.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
 
         if use_symmetric_weights == True:
             # enforce symmetric weights
@@ -471,13 +471,10 @@ class Network:
             # do a forward pass
             self.out_f(training=training)
 
-            if use_rand_burst_times:
+            if use_rand_burst_times and training:
                 # perform bursting for hidden layer neurons
                 for m in xrange(self.M-2, -1, -1):
-                    if training:
-                        burst_indices = np.nonzero(time == self.burst_times_f[m][training_num])
-                    else:
-                        burst_indices = np.arange(self.n[m])*(time == l_f_phase - 1)
+                    burst_indices = np.nonzero(time == self.burst_times_f[m][training_num])
 
                     self.l[m].burst_f(burst_indices=burst_indices)
 
@@ -489,13 +486,15 @@ class Network:
                     self.B_hists[m][time, :] = self.l[m].B[:, 0]
                     self.C_hists[m][time, :] = self.l[m].C[:, 0]
 
-        for m in xrange(self.M-1, -1, -1):
-            if not use_rand_burst_times:
+        if (not use_rand_burst_times) or (not training):
+            for m in xrange(self.M-2, -1, -1):
                 burst_indices = np.arange(self.n[m])
 
-                # perform bursting
+                # perform bursting for hidden layer neurons
                 self.l[m].burst_f(burst_indices=burst_indices)
 
+        for m in xrange(self.M-1, -1, -1):
+             # calculate averages
             self.l[m].calc_averages(phase="forward")
 
         if record_eigvals:
@@ -558,13 +557,14 @@ class Network:
                     self.B_hists[m][time, :] = self.l[m].B[:, 0]
                     self.C_hists[m][time, :] = self.l[m].C[:, 0]
 
-        for m in xrange(self.M-1, -1, -1):
-            if not use_rand_burst_times:
+        if not use_rand_burst_times:
+            for m in xrange(self.M-2, -1, -1):
                 burst_indices = np.arange(self.n[m])
 
-                # perform bursting
+                # perform bursting for hidden layer neurons
                 self.l[m].burst_t(burst_indices=burst_indices)
 
+        for m in xrange(self.M-1, -1, -1):
             # calculate averages
             self.l[m].calc_averages(phase="target")
 
@@ -671,12 +671,13 @@ class Network:
             # make simulation directory
             if not os.path.exists(self.simulation_path):
                 os.makedirs(self.simulation_path)
-            elif self.latest_epoch < 0 and overwrite == False:
-                print("Error: Simulation directory \"{}\" already exists.".format(self.simulation_path))
-                return
-            else:
-                shutil.rmtree(self.simulation_path, ignore_errors=True)
-                os.makedirs(self.simulation_path)
+            elif self.latest_epoch < 0:
+                if overwrite == False:
+                    print("Error: Simulation directory \"{}\" already exists.".format(self.simulation_path))
+                    return
+                else:
+                    shutil.rmtree(self.simulation_path, ignore_errors=True)
+                    os.makedirs(self.simulation_path)
 
             # copy current script to simulation directory
             filename = os.path.basename(__file__)
@@ -761,6 +762,9 @@ class Network:
 
                 if record_loss:
                     self.prev_losses = np.load(os.path.join(self.simulation_path, "final_layer_loss.npy"))
+
+                if record_training_error:
+                    self.prev_training_errors = np.load(os.path.join(self.simulation_path, "training_errors.npy"))
 
                 if record_training_labels:
                     self.prev_training_labels = np.load(os.path.join(self.simulation_path, "training_labels.npy"))
@@ -1831,7 +1835,7 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     use_spiking_feedforward = params['use_spiking_feedforward']
     use_symmetric_weights   = params['use_symmetric_weights']
     use_sparse_feedback     = params['use_sparse_feedback']
-    update_feedback_weights = params['update_feedback_weights']
+    update_feedback_weights = params['update_backward_weights']
     use_backprop            = params['use_backprop']
     use_apical_conductance  = params['use_apical_conductance']
     use_weight_optimization = params['use_weight_optimization']
