@@ -1221,9 +1221,6 @@ class Network:
 
         old_x_hist = self.x_hist
 
-        # copy layer objects to be restored after testing
-        old_l = copy.copy(self.l)
-
         # initialize count of correct classifications
         num_correct = 0
 
@@ -1267,15 +1264,20 @@ class Network:
         # calculate percent error
         err_rate = (1.0 - float(num_correct)/n_test)*100.0
 
-        # restore everything to its previous state
-        self.l = old_l
-
         if old_x_hist is not None:
             self.x_hist = old_x_hist
 
         integration_time = old_integration_time
 
         l_f_phase = old_l_f_phase
+
+        # create new integration recording variables
+        for m in xrange(self.M):
+            self.l[m].create_integration_vars()
+
+        # clear all layer variables
+        for m in xrange(self.M):
+            self.l[m].clear_vars()
 
         if n_test > 100:
             sys.stdout.write("\x1b[2K\r")
