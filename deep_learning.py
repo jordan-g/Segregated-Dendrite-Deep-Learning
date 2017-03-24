@@ -691,6 +691,7 @@ class Network:
                 'n_full_test'            : n_full_test,
                 'n_quick_test'           : n_quick_test,
                 'use_rand_phase_lengths' : use_rand_phase_lengths,
+                'use_rand_burst_times'   : use_rand_phase_lengths,
                 'use_conductances'       : use_conductances,
                 'use_broadcast'          : use_broadcast,
                 'use_spiking_feedback'   : use_spiking_feedback,
@@ -1846,7 +1847,7 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
 
     # set global parameters
     global n_full_test, n_quick_test
-    global use_rand_phase_lengths, use_conductances, use_broadcast, use_spiking_feedback, use_spiking_feedforward
+    global use_rand_phase_lengths, use_rand_burst_times, use_conductances, use_broadcast, use_spiking_feedback, use_spiking_feedforward
     global use_symmetric_weights, noisy_symmetric_weights
     global use_sparse_feedback, update_feedback_weights, use_backprop, use_apical_conductance, use_weight_optimization
     global record_backprop_angle, record_loss, record_training_error, record_training_labels, record_burst_times, record_voltages, record_eigvals, record_matrices, plot_eigvals
@@ -1862,6 +1863,7 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     n_full_test             = params['n_full_test']
     n_quick_test            = params['n_quick_test']
     use_rand_phase_lengths  = params['use_rand_phase_lengths']
+    use_rand_burst_times    = params['use_rand_burst_times']
     use_conductances        = params['use_conductances']
     use_broadcast           = params['use_broadcast']
     use_spiking_feedback    = params['use_spiking_feedback']
