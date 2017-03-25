@@ -35,7 +35,7 @@ n_quick_test = 100   # number of examples to use for quick tests (every 1000 exa
 # ---------------------------------------------------------------
 
 use_rand_phase_lengths  = True  # use random phase lengths (chosen from Wald distribution)
-use_rand_burst_times    = True  # randomly sample each neuron's bursting time
+use_rand_burst_times    = False # randomly sample each neuron's bursting time
 use_conductances        = True  # use conductances between dendrites and soma
 use_broadcast           = True  # use broadcast (ie. feedback to all layers comes from output layer)
 use_spiking_feedback    = True  # use spiking feedback
@@ -691,7 +691,7 @@ class Network:
                 'n_full_test'            : n_full_test,
                 'n_quick_test'           : n_quick_test,
                 'use_rand_phase_lengths' : use_rand_phase_lengths,
-                'use_rand_burst_times'   : use_rand_phase_lengths,
+                'use_rand_burst_times'   : use_rand_burst_times,
                 'use_conductances'       : use_conductances,
                 'use_broadcast'          : use_broadcast,
                 'use_spiking_feedback'   : use_spiking_feedback,
