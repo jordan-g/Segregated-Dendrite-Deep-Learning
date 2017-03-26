@@ -27,7 +27,7 @@ import json
 if sys.version_info >= (3,):
     xrange = range
 
-n_full_test  = 10000 # number of examples to use for full tests  (every epoch)
+n_full_test  = 100 # number of examples to use for full tests  (every epoch)
 n_quick_test = 100   # number of examples to use for quick tests (every 1000 examples)
 
 # ---------------------------------------------------------------
@@ -54,7 +54,8 @@ record_backprop_angle   = False # record angle b/w hidden layer error signals an
 record_loss             = True  # record final layer loss during training
 record_training_error   = True  # record training error during training
 record_training_labels  = True  # record labels of images that were shown during training
-record_burst_times      = False # record burst firing times for each neuron across training
+record_burst_times      = True  # record burst firing times for each neuron across training
+record_phase_times      = True  # record phase transition times across training
 record_voltages         = False # record voltages of neurons during training (huge arrays for long simulations!)
 
 # --- Jacobian testing --- #
@@ -303,9 +304,14 @@ class Network:
         if self.M == 1:
             self.l.append(finalLayer(net=self, m=-1, f_input_size=self.n_in))
         else:
-            self.l.append(hiddenLayer(net=self, m=0, f_input_size=self.n_in, b_input_size=self.n[1]))
-            for m in xrange(1, self.M-1):
-                self.l.append(hiddenLayer(net=self, m=m, f_input_size=self.n[m-1], b_input_size=self.n[m+1]))
+            if use_broadcast:
+                self.l.append(hiddenLayer(net=self, m=0, f_input_size=self.n_in, b_input_size=self.n[-1]))
+                for m in xrange(1, self.M-1):
+                    self.l.append(hiddenLayer(net=self, m=m, f_input_size=self.n[m-1], b_input_size=self.n[-1]))
+            else:
+                self.l.append(hiddenLayer(net=self, m=0, f_input_size=self.n_in, b_input_size=self.n[1]))
+                for m in xrange(1, self.M-1):
+                    self.l.append(hiddenLayer(net=self, m=m, f_input_size=self.n[m-1], b_input_size=self.n[m+1]))
             self.l.append(finalLayer(net=self, m=self.M-1, f_input_size=self.n[-2]))
 
     def out_f(self, training=False):
@@ -775,6 +781,9 @@ class Network:
                 if record_burst_times:
                     self.prev_burst_times_full = [ np.load(os.path.join(self.simulation_path, "burst_times_{}.npy".format(m))) for m in range(self.M)]
 
+                if record_phase_times:
+                    self.prev_phase_times = np.load(os.path.join(self.simulation_path, "phase_times.npy"))
+
                 if record_eigvals:
                     self.prev_max_jacobian_eigvals   = np.load(os.path.join(self.simulation_path, "max_jacobian_eigvals.npy"))
                     self.prev_max_weight_eigvals     = np.load(os.path.join(self.simulation_path, "max_weight_eigvals.npy"))
@@ -808,6 +817,21 @@ class Network:
 
         if record_burst_times:
             self.burst_times_full = [ np.zeros((n_epochs*2*n_training_examples, self.n[m])) for m in range(self.M) ]
+
+        if record_phase_times:
+            self.phase_times = np.zeros(n_epochs*n_training_examples*2)
+
+            for i in range(n_epochs*n_training_examples):
+                self.phase_times[2*i] = np.sum(l_f_phases[:i+1]) + np.sum(l_t_phases[:i])
+                self.phase_times[2*i+1] = np.sum(l_f_phases[:i+1]) + np.sum(l_t_phases[:i+1])
+
+            if save_simulation:
+                if self.latest_epoch < 0:
+                    phase_times = self.phase_times
+                else:
+                    phase_times = np.concatenate(self.prev_phase_times, self.phase_times, axis=0)
+
+                np.save(os.path.join(self.simulation_path, "phase_times.npy"), phase_times)
 
         if record_training_labels:
             self.training_labels = np.zeros(n_epochs*n_training_examples)
@@ -935,8 +959,8 @@ class Network:
                     total_time_to_forward_phase = np.sum(l_f_phases[:k*n_training_examples + n]) + np.sum(l_t_phases[:k*n_training_examples + n])
                     total_time_to_target_phase  = np.sum(l_f_phases[:k*n_training_examples + n + 1]) + np.sum(l_t_phases[:k*n_training_examples + n])
                     for m in range(self.M):
-                        self.burst_times_full[m][k*n_training_examples + 2*n]     = total_time_to_forward_phase + self.burst_times_f[n, m]
-                        self.burst_times_full[m][k*n_training_examples + 2*n + 1] = total_time_to_target_phase + self.burst_times_t[n, m]
+                        self.burst_times_full[m][k*n_training_examples + 2*n]     = total_time_to_forward_phase + self.burst_times_f[m][n]
+                        self.burst_times_full[m][k*n_training_examples + 2*n + 1] = total_time_to_target_phase + self.burst_times_t[m][n]
 
                 # print every 100 examples
                 if (n+1) % 100 == 0:
@@ -1870,7 +1894,7 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     use_spiking_feedforward = params['use_spiking_feedforward']
     use_symmetric_weights   = params['use_symmetric_weights']
     use_sparse_feedback     = params['use_sparse_feedback']
-    update_feedback_weights = params['update_backward_weights']
+    update_feedback_weights = params['update_feedback_weights']
     use_backprop            = params['use_backprop']
     use_apical_conductance  = params['use_apical_conductance']
     use_weight_optimization = params['use_weight_optimization']
