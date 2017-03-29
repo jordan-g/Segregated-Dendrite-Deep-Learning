@@ -27,7 +27,7 @@ import json
 if sys.version_info >= (3,):
     xrange = range
 
-n_full_test  = 100 # number of examples to use for full tests  (every epoch)
+n_full_test  = 10000 # number of examples to use for full tests  (every epoch)
 n_quick_test = 100   # number of examples to use for quick tests (every 1000 examples)
 
 # ---------------------------------------------------------------
@@ -54,8 +54,8 @@ record_backprop_angle   = False # record angle b/w hidden layer error signals an
 record_loss             = True  # record final layer loss during training
 record_training_error   = True  # record training error during training
 record_training_labels  = True  # record labels of images that were shown during training
-record_burst_times      = True  # record burst firing times for each neuron across training
-record_phase_times      = True  # record phase transition times across training
+record_burst_times      = False # record burst firing times for each neuron across training
+record_phase_times      = False # record phase transition times across training (very slow for long simulations - needs to be fixed)
 record_voltages         = False # record voltages of neurons during training (huge arrays for long simulations!)
 
 # --- Jacobian testing --- #
@@ -224,15 +224,15 @@ class Network:
                         self.Y[m-1] = np.dot(3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5), self.Y[m])
                         self.c[m-1] = np.dot(self.Y[m-1], 3.465*W_sd*(np.random.uniform(size=(self.n[-1], 1)) - 0.5))
                     else:
-                        self.Y[m-1] = 1.0*(np.random.uniform(size=(N, self.n[-1])) - 0.5)
-                        self.c[m-1] = 1.0*(np.random.uniform(size=(N, 1)) - 0.5)
+                        self.Y[m-1] = (np.random.uniform(size=(N, self.n[-1])) - 0.5)
+                        self.c[m-1] = (np.random.uniform(size=(N, 1)) - 0.5)
                 else:
                     if use_weight_optimization:
-                         self.Y[m-1] = W_avg + 3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5)
+                         self.Y[m-1] = (W_avg + 3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5))
                          self.c[m-1] = (W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5))
                     else:
-                        self.Y[m-1] = 1.0*(np.random.uniform(size=(N, self.n[m])) - 0.5)
-                        self.c[m-1] = 1.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
+                        self.Y[m-1] = (np.random.uniform(size=(N, self.n[m])) - 0.5)
+                        self.c[m-1] = (np.random.uniform(size=(self.n[m], 1)) - 0.5)
 
         if use_symmetric_weights == True:
             # enforce symmetric weights
@@ -821,7 +821,7 @@ class Network:
         if record_phase_times:
             self.phase_times = np.zeros(n_epochs*n_training_examples*2)
 
-            for i in range(n_epochs*n_training_examples):
+            for i in xrange(n_epochs*n_training_examples):
                 self.phase_times[2*i] = np.sum(l_f_phases[:i+1]) + np.sum(l_t_phases[:i])
                 self.phase_times[2*i+1] = np.sum(l_f_phases[:i+1]) + np.sum(l_t_phases[:i+1])
 
