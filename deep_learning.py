@@ -6,7 +6,7 @@ by Jordan Guergiuev, Timothy P. Lillicrap, Blake A. Richards.
 
      Author: Jordan Guergiuev
      E-mail: guerguiev.j@gmail.com
-       Date: March 3, 2017
+       Date: March 31, 2017
 Institution: University of Toronto Scarborough
 '''
 
@@ -55,7 +55,7 @@ record_loss             = True  # record final layer loss during training
 record_training_error   = True  # record training error during training
 record_training_labels  = True  # record labels of images that were shown during training
 record_burst_times      = False # record burst firing times for each neuron across training
-record_phase_times      = False # record phase transition times across training (very slow for long simulations - needs to be fixed)
+record_phase_times      = False # record phase transition times across training
 record_voltages         = False # record voltages of neurons during training (huge arrays for long simulations!)
 
 # --- Jacobian testing --- #
@@ -821,9 +821,12 @@ class Network:
         if record_phase_times:
             self.phase_times = np.zeros(n_epochs*n_training_examples*2)
 
-            for i in xrange(n_epochs*n_training_examples):
-                self.phase_times[2*i] = np.sum(l_f_phases[:i+1]) + np.sum(l_t_phases[:i])
-                self.phase_times[2*i+1] = np.sum(l_f_phases[:i+1]) + np.sum(l_t_phases[:i+1])
+            self.phase_times[0] = l_f_phases[0]
+            for i in xrange(1, 2*n_epochs*n_training_examples):
+                if i % 2 == 0:
+                    self.phase_times[i] = self.phase_times[i-1] + l_f_phases[int(i/2)]
+                else:
+                    self.phase_times[i] = self.phase_times[i-1] + l_t_phases[int((i-1)/2)]
 
             if save_simulation:
                 if self.latest_epoch < 0:
