@@ -1,7 +1,7 @@
 # encoding=utf8
 '''
 Code for simulations presented in
-"Deep learning with segregated dendrites"
+"Towards deep learning with segregated dendrites", arXiv:1610.00161
 by Jordan Guergiuev, Timothy P. Lillicrap, Blake A. Richards.
 
      Author: Jordan Guergiuev
@@ -178,7 +178,7 @@ class Network:
             V_sd  = 3                  # desired standard deviation of dendritic potential
             b_avg = 0.8                # desired average of bias
             b_sd  = 0.001              # desired standard deviation of bias
-            nu    = lambda_max*0.25       # slope of linear region of activation function
+            nu    = lambda_max*0.25    # slope of linear region of activation function
             V_sm  = V_sd**2 + V_avg**2 # second moment of dendritic potential
 
         # initialize lists of weight matrices & bias vectors
@@ -971,9 +971,9 @@ class Network:
 
                 if record_voltages:
                     # initialize voltage arrays
-                    self.A_hists     = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M-1)]
-                    self.B_hists     = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M)]
-                    self.C_hists     = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M)]
+                    self.A_hists = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M-1)]
+                    self.B_hists = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M)]
+                    self.C_hists = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M)]
 
                 # do forward & target phases
                 self.f_phase(self.x, None, n, training=True)
