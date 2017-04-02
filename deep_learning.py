@@ -136,7 +136,7 @@ kappas = np.flipud(get_kappas(mem))[:, np.newaxis] # initialize kappas array
 class Network:
     def __init__(self, n):
         '''
-        Initialize the network.
+        Initialize the network. Note: This also loads the MNIST dataset.
 
         Arguments:
             n (tuple) : Number of units in each layer of the network, eg. (500, 100, 10).
@@ -1134,7 +1134,7 @@ class Network:
                                         jacobian_prod_matrices = self.jacobian_prod_matrices[:(k+1)*n_training_examples]
                                         weight_prod_matrices   = self.weight_prod_matrices[:(k+1)*n_training_examples+1]
                             else:
-                                # this is a continuation of a previously-started simulation
+                                # this is a continuation of a previously-started simulation; append current recording vectors to previous ones
                                 quick_test_errs = np.concatenate([self.prev_quick_test_errs, self.quick_test_errs[:(k+1)*int(n_training_examples/1000)]], axis=0)
                                 if n == n_training_examples - 1:
                                     full_test_errs = np.concatenate([self.prev_full_test_errs, self.full_test_errs[:k+1]], axis=0)
