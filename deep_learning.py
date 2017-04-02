@@ -8,6 +8,21 @@ by Jordan Guergiuev, Timothy P. Lillicrap, Blake A. Richards.
      E-mail: guerguiev.j@gmail.com
        Date: March 31, 2017
 Institution: University of Toronto Scarborough
+
+Copyright (C) 2017 Jordan Guerguiev
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
 '''
 
 from __future__ import print_function
@@ -1977,7 +1992,7 @@ def load_MNIST(n_valid=0):
 
         Arguments:
             n_valid (int) : Number of validation examples that are saved.
-            
+
         Returns:
             x_train (ndarray) : Training inputs.
             t_train (ndarray) : Training targets.
