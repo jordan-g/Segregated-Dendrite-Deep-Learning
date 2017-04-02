@@ -1977,7 +1977,7 @@ def load_MNIST(n_valid=0):
 
         Arguments:
             n_valid (int) : Number of validation examples that are saved.
-
+            
         Returns:
             x_train (ndarray) : Training inputs.
             t_train (ndarray) : Training targets.
@@ -1996,7 +1996,7 @@ def load_MNIST(n_valid=0):
             x_valid = np.load("x_valid.npy")
             t_valid = np.load("t_valid.npy")
     except:
-        print("Error: Could not find MNIST .npy files in the current directory.\nLooking for original binary files...")
+        print("Could not find MNIST .npy files in the current directory.\nLooking for original binary files...")
         try:
             if n_valid != 0:
                 x_train, t_train, x_test, t_test, x_valid, t_valid = get_MNIST(n_valid)
@@ -2006,6 +2006,8 @@ def load_MNIST(n_valid=0):
                 save_MNIST(x_train, t_train, x_test, t_test)
         except:
             return
+
+        print("Saved .npy files in the current working directory.\n")
 
     if n_valid != 0:
         return x_train, t_train, x_test, t_test, x_valid, t_valid
@@ -2045,12 +2047,20 @@ def get_MNIST(n_valid=0):
     '''
 
     import MNIST
-    
-    try:
-        trainfeatures, trainlabels = MNIST.traindata()
-        testfeatures, testlabels   = MNIST.testdata()
-    except:
-        print("Error: Could not find original MNIST files in the current directory.")
+
+    if (os.path.isfile("train-images.idx3-ubyte") and
+        os.path.isfile("train-labels.idx1-ubyte") and
+        os.path.isfile("t10k-images.idx3-ubyte") and
+        os.path.isfile("t10k-labels.idx1-ubyte")):
+        print("Found original MNIST files. Converting to .npy files...")
+        try:
+            trainfeatures, trainlabels = MNIST.traindata()
+            testfeatures, testlabels   = MNIST.testdata()
+        except:
+            print("Error: Could not convert original MNIST files.")
+            return
+    else:
+        print("Error: Could not find original MNIST files in the current directory.\nMake sure that all four binary files are in the current working directory.")
         return
  
     # normalize inputs

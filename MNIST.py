@@ -1,3 +1,4 @@
+# encoding=utf8
 import numpy as np
 import struct
 import sys
@@ -16,7 +17,7 @@ TESTIMAGES  = "t10k-images.idx3-ubyte"
 TESTLABELS  = "t10k-labels.idx1-ubyte"
 
 def imageheader(filename):
-    with open(filename, 'r') as io:
+    with open(filename, 'rb') as io:
         magic_number = struct.unpack('>i', io.read(4))[0]
         total_items  = struct.unpack('>i', io.read(4))[0]
         nrows = struct.unpack('>i', io.read(4))[0]
@@ -24,13 +25,13 @@ def imageheader(filename):
     return magic_number, int(total_items), int(nrows), int(ncols)
 
 def labelheader(filename):
-    with open(filename, 'r') as io:
+    with open(filename, 'rb') as io:
         magic_number = struct.unpack('>i', io.read(4))[0]
         total_items  = struct.unpack('>i', io.read(4))[0]
     return magic_number, int(total_items)
 
 def getimage(filename, index):
-    with open(filename, 'r') as io:
+    with open(filename, 'rb') as io:
         io.seek(IMAGEOFFSET + NROWS * NCOLS * index)
         image = np.empty((NROWS, NCOLS))
         for i in np.nditer(image, op_flags=['readwrite']):
@@ -38,7 +39,7 @@ def getimage(filename, index):
     return image
 
 def getlabel(filename, index):
-    with open(filename, 'r') as io:
+    with open(filename, 'rb') as io:
         io.seek(LABELOFFSET + index)
         label = struct.unpack('B', io.read(1))[0]
     return label
