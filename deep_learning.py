@@ -254,7 +254,7 @@ class Network:
             print("Layer {0} -- {1} units.".format(m, self.n[m]))
             print("\tW_avg: {0:.6f},\tW_sd: {1:.6f},\n".format(np.mean(self.W[m]), np.std(self.W[m]))
                 + "\tb_avg: {0:.6f},\tb_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
-                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f},\n".format(np.mean(self.Y[m]), np.std(self.Y[m]))
+                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f},\n".format(np.mean(self.Y[m]), np.std(self.Y[m])))
         print("--------------------------------\n")
 
     def make_weights_symmetric(self):
@@ -1354,7 +1354,7 @@ class Network:
             print("Layer {0} -- {1} units.".format(m, self.n[m]))
             print("\tW_avg: {0:.6f},\tW_sd: {1:.6f},\n".format(np.mean(self.W[m]), np.std(self.W[m]))
                 + "\tb_avg: {0:.6f},\tb_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
-                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f},\n".format(np.mean(self.Y[m]), np.std(self.Y[m]))
+                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f},\n".format(np.mean(self.Y[m]), np.std(self.Y[m])))
         print("--------------------------------\n")
 
 # ---------------------------------------------------------------
