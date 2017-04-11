@@ -19,12 +19,6 @@ Copyright (C) 2017 Jordan Guerguiev
 
 import deep_learning as dl
 
-# load MNIST -- assuming the original MNIST binary files are in the current folder
-try:
-	x_train, t_train, x_test, t_test = dl.load_MNIST()
-except:
-	exit()
-
 # silence 80% of feedback weights
 dl.use_sparse_feedback = True
 
@@ -34,7 +28,7 @@ b_etas = None
 n_epochs = 10
 n_training_examples = 60000
 
-# create the network
+# create the network -- this will also load the MNIST dataset files
 net = dl.Network(n=(500, 10))
 
 # train the network

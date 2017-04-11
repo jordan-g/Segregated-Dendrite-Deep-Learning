@@ -1,7 +1,7 @@
 # encoding=utf8
 '''
 Code for simulations presented in
-"Deep learning with segregated dendrites"
+"Towards deep learning with segregated dendrites", arXiv:1610.00161
 by Jordan Guergiuev, Timothy P. Lillicrap, Blake A. Richards.
 
      Author: Jordan Guergiuev
@@ -38,6 +38,7 @@ import sys
 import time
 import shutil
 import json
+from scipy.special import expit
 
 if sys.version_info >= (3,):
     xrange = range
@@ -50,7 +51,7 @@ n_quick_test = 100   # number of examples to use for quick tests (every 1000 exa
 # ---------------------------------------------------------------
 
 use_rand_phase_lengths  = True  # use random phase lengths (chosen from Wald distribution)
-use_rand_burst_times    = False # randomly sample each neuron's bursting time
+use_rand_plateau_times  = False # randomly sample the time of each neuron's apical plateau potential
 use_conductances        = True  # use conductances between dendrites and soma
 use_broadcast           = True  # use broadcast (ie. feedback to all layers comes from output layer)
 use_spiking_feedback    = True  # use spiking feedback
@@ -69,8 +70,8 @@ record_backprop_angle   = False # record angle b/w hidden layer error signals an
 record_loss             = True  # record final layer loss during training
 record_training_error   = True  # record training error during training
 record_training_labels  = True  # record labels of images that were shown during training
-record_burst_times      = False # record burst firing times for each neuron across training
 record_phase_times      = False # record phase transition times across training
+record_plateau_times    = False # record plateau potential times for each neuron across training
 record_voltages         = False # record voltages of neurons during training (huge arrays for long simulations!)
 
 # --- Jacobian testing --- #
@@ -92,10 +93,11 @@ integration_time      = l_f_phase - int(30/dt)      # time steps of integration 
 integration_time_test = l_f_phase_test - int(30/dt) # time steps of integration of neuronal variables during testing
 
 if use_rand_phase_lengths:
+    # set minimum phase lengths
     min_l_f_phase = l_f_phase
     min_l_t_phase = l_t_phase
 
-phi_max = 0.2*dt # maximum spike rate (spikes per time step)
+lambda_max = 0.2*dt # maximum spike rate (spikes per time step)
 
 # kernel parameters
 tau_s = 3.0  # synaptic time constant
@@ -117,27 +119,19 @@ k_D = g_D/(g_L + g_D)
 k_I = 1.0/(g_L + g_D)
 
 # weight update constants
-P_hidden = 20.0/phi_max      # hidden layer error signal scaling factor
-P_final  = 20.0/(phi_max**2) # final layer error signal scaling factor
+P_hidden = 20.0/lambda_max      # hidden layer error signal scaling factor
+P_final  = 20.0/(lambda_max**2) # final layer error signal scaling factor
 
 # ---------------------------------------------------------------
 """                     Functions                             """
 # ---------------------------------------------------------------
 
-# --- activation function --- #
+# --- sigmoid function --- #
 
-# spike rate equation
-def phi(x):
-    return phi_max/(1.0 + np.exp(-x))
+def sigma(x):
+    return expit(x)
 
-def deriv_phi(x):
-    return phi_max*np.exp(x)/(1.0 + np.exp(x))**2
-
-# nonlinearity at apical dendrite
-def alpha(x):
-    return 1.0/(1.0 + np.exp(-x))
-
-def deriv_alpha(x):
+def deriv_sigma(x):
     return np.exp(x)/(1.0 + np.exp(x))**2
 
 # --- kernel function --- #
@@ -157,7 +151,7 @@ kappas = np.flipud(get_kappas(mem))[:, np.newaxis] # initialize kappas array
 class Network:
     def __init__(self, n):
         '''
-        Initialize the network.
+        Initialize the network. Note: This also loads the MNIST dataset.
 
         Arguments:
             n (tuple) : Number of units in each layer of the network, eg. (500, 100, 10).
@@ -199,7 +193,7 @@ class Network:
             V_sd  = 3                  # desired standard deviation of dendritic potential
             b_avg = 0.8                # desired average of bias
             b_sd  = 0.001              # desired standard deviation of bias
-            nu    = phi_max*0.25       # slope of linear region of activation function
+            nu    = lambda_max*0.25    # slope of linear region of activation function
             V_sm  = V_sd**2 + V_avg**2 # second moment of dendritic potential
 
         # initialize lists of weight matrices & bias vectors
@@ -232,7 +226,7 @@ class Network:
                 self.W[m] = 0.1*(np.random.uniform(size=(self.n[m], N)) - 0.5)
                 self.b[m] = 1.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
 
-            # generate feedback weights & biases
+            # generate feedback weights & biases; in the paper, we do not use feedback biases
             if m != 0:
                 if use_broadcast:
                     if use_weight_optimization:
@@ -348,25 +342,25 @@ class Network:
                         if use_spiking_feedforward:
                             self.l[m].out_f(self.l[m-1].S_hist, self.l[-1].S_hist)
                         else:
-                            self.l[m].out_f(self.l[m-1].phi_C, self.l[-1].S_hist)
+                            self.l[m].out_f(self.l[m-1].lambda_C, self.l[-1].S_hist)
 
                     if use_spiking_feedforward:
                         self.l[-1].out_f(self.l[-2].S_hist, None)
                     else:
-                        self.l[-1].out_f(self.l[-2].phi_C, None)
+                        self.l[-1].out_f(self.l[-2].lambda_C, None)
                 else:
-                    self.l[0].out_f(x, self.l[-1].phi_C)
+                    self.l[0].out_f(x, self.l[-1].lambda_C)
 
                     for m in xrange(1, self.M-1):
                         if use_spiking_feedforward:
-                            self.l[m].out_f(self.l[m-1].S_hist, self.l[-1].phi_C)
+                            self.l[m].out_f(self.l[m-1].S_hist, self.l[-1].lambda_C)
                         else:
-                            self.l[m].out_f(self.l[m-1].phi_C, self.l[-1].phi_C)
+                            self.l[m].out_f(self.l[m-1].lambda_C, self.l[-1].lambda_C)
 
                     if use_spiking_feedforward:
                         self.l[-1].out_f(self.l[-2].S_hist, None)
                     else:
-                        self.l[-1].out_f(self.l[-2].phi_C, None)
+                        self.l[-1].out_f(self.l[-2].lambda_C, None)
             else:
                 if use_spiking_feedback:
                     self.l[0].out_f(x, self.l[1].S_hist)
@@ -375,25 +369,25 @@ class Network:
                         if use_spiking_feedforward:
                             self.l[m].out_f(self.l[m-1].S_hist, self.l[m+1].S_hist)
                         else:
-                            self.l[m].out_f(self.l[m-1].phi_C, self.l[m+1].S_hist)
+                            self.l[m].out_f(self.l[m-1].lambda_C, self.l[m+1].S_hist)
 
                     if use_spiking_feedforward:
                         self.l[-1].out_f(self.l[-2].S_hist, None)
                     else:
-                        self.l[-1].out_f(self.l[-2].phi_C, None)
+                        self.l[-1].out_f(self.l[-2].lambda_C, None)
                 else:
-                    self.l[0].out_f(x, self.l[1].phi_C)
+                    self.l[0].out_f(x, self.l[1].lambda_C)
 
                     for m in xrange(1, self.M-1):
                         if use_spiking_feedforward:
-                            self.l[m].out_f(self.l[m-1].S_hist, self.l[m+1].phi_C)
+                            self.l[m].out_f(self.l[m-1].S_hist, self.l[m+1].lambda_C)
                         else:
-                            self.l[m].out_f(self.l[m-1].phi_C, self.l[m+1].phi_C)
+                            self.l[m].out_f(self.l[m-1].lambda_C, self.l[m+1].lambda_C)
 
                     if use_spiking_feedforward:
                         self.l[-1].out_f(self.l[-2].S_hist, None)
                     else:
-                        self.l[-1].out_f(self.l[-2].phi_C, None)
+                        self.l[-1].out_f(self.l[-2].lambda_C, None)
 
     def out_t(self):
         '''
@@ -418,25 +412,25 @@ class Network:
                         if use_spiking_feedforward:
                             self.l[m].out_t(self.l[m-1].S_hist, self.l[-1].S_hist)
                         else:
-                            self.l[m].out_t(self.l[m-1].phi_C, self.l[-1].S_hist)
+                            self.l[m].out_t(self.l[m-1].lambda_C, self.l[-1].S_hist)
 
                     if use_spiking_feedforward:
                         self.l[-1].out_t(self.l[-2].S_hist, self.t)
                     else:
-                        self.l[-1].out_t(self.l[-2].phi_C, self.t)
+                        self.l[-1].out_t(self.l[-2].lambda_C, self.t)
                 else:
-                    self.l[0].out_t(x, self.l[-1].phi_C)
+                    self.l[0].out_t(x, self.l[-1].lambda_C)
 
                     for m in xrange(1, self.M-1):
                         if use_spiking_feedforward:
-                            self.l[m].out_t(self.l[m-1].S_hist, self.l[-1].phi_C)
+                            self.l[m].out_t(self.l[m-1].S_hist, self.l[-1].lambda_C)
                         else:
-                            self.l[m].out_t(self.l[m-1].phi_C, self.l[-1].phi_C)
+                            self.l[m].out_t(self.l[m-1].lambda_C, self.l[-1].lambda_C)
 
                     if use_spiking_feedforward:
                         self.l[-1].out_t(self.l[-2].S_hist, self.t)
                     else:
-                        self.l[-1].out_t(self.l[-2].phi_C, self.t)
+                        self.l[-1].out_t(self.l[-2].lambda_C, self.t)
             else:
                 if use_spiking_feedback:
                     self.l[0].out_t(x, self.l[1].S_hist)
@@ -445,25 +439,25 @@ class Network:
                         if use_spiking_feedforward:
                             self.l[m].out_t(self.l[m-1].S_hist, self.l[m+1].S_hist)
                         else:
-                            self.l[m].out_t(self.l[m-1].phi_C, self.l[m+1].S_hist)
+                            self.l[m].out_t(self.l[m-1].lambda_C, self.l[m+1].S_hist)
 
                     if use_spiking_feedforward:
                         self.l[-1].out_t(self.l[-2].S_hist, self.t)
                     else:
-                        self.l[-1].out_t(self.l[-2].phi_C, self.t)
+                        self.l[-1].out_t(self.l[-2].lambda_C, self.t)
                 else:
-                    self.l[0].out_t(x, self.l[1].phi_C)
+                    self.l[0].out_t(x, self.l[1].lambda_C)
 
                     for m in xrange(1, self.M-1):
                         if use_spiking_feedforward:
-                            self.l[m].out_t(self.l[m-1].S_hist, self.l[m+1].phi_C)
+                            self.l[m].out_t(self.l[m-1].S_hist, self.l[m+1].lambda_C)
                         else:
-                            self.l[m].out_t(self.l[m-1].phi_C, self.l[m+1].phi_C)
+                            self.l[m].out_t(self.l[m-1].lambda_C, self.l[m+1].lambda_C)
 
                     if use_spiking_feedforward:
                         self.l[-1].out_t(self.l[-2].S_hist, self.t)
                     else:
-                        self.l[-1].out_t(self.l[-2].phi_C, self.t)
+                        self.l[-1].out_t(self.l[-2].lambda_C, self.t)
 
     def f_phase(self, x, t, training_num, training=False):
         '''
@@ -489,12 +483,12 @@ class Network:
             # do a forward pass
             self.out_f(training=training)
 
-            if use_rand_burst_times and training:
-                # perform bursting for hidden layer neurons
+            if use_rand_plateau_times and training:
+                # calculate plateau potentials for hidden layer neurons
                 for m in xrange(self.M-2, -1, -1):
-                    burst_indices = np.nonzero(time == self.burst_times_f[m][training_num])
+                    plateau_indices = np.nonzero(time == self.plateau_times_f[m][training_num])
 
-                    self.l[m].burst_f(burst_indices=burst_indices)
+                    self.l[m].plateau_f(plateau_indices=plateau_indices)
 
             if record_voltages and training:
                 # record voltages for this timestep
@@ -504,12 +498,12 @@ class Network:
                     self.B_hists[m][time, :] = self.l[m].B[:, 0]
                     self.C_hists[m][time, :] = self.l[m].C[:, 0]
 
-        if (not use_rand_burst_times) or (not training):
+        if (not use_rand_plateau_times) or (not training):
             for m in xrange(self.M-2, -1, -1):
-                burst_indices = np.arange(self.n[m])
+                plateau_indices = np.arange(self.n[m])
 
-                # perform bursting for hidden layer neurons
-                self.l[m].burst_f(burst_indices=burst_indices)
+                # calculate plateau potentials for hidden layer neurons
+                self.l[m].plateau_f(plateau_indices=plateau_indices)
 
         for m in xrange(self.M-1, -1, -1):
              # calculate averages
@@ -520,6 +514,7 @@ class Network:
             if len(self.J_betas) >= 100:
                 self.J_betas = self.J_betas[1:]
                 self.J_gammas = self.J_gammas[1:]
+
             self.J_betas.append(np.multiply(deriv_phi(self.l[-1].average_C_f), k_D*self.W[-1]))
             self.J_gammas.append(np.multiply(deriv_alpha(np.dot(self.Y[-2], phi(self.l[-1].average_C_f))), self.Y[-2]))
 
@@ -560,12 +555,12 @@ class Network:
             # do a target pass
             self.out_t()
 
-            if use_rand_burst_times:
-                # perform bursting & weight updates
+            if use_rand_plateau_times:
+                # calculate plateau potentials & perform weight updates
                 for m in xrange(self.M-2, -1, -1):
-                    burst_indices = np.nonzero(time == self.burst_times_t[m][training_num])
+                    plateau_indices = np.nonzero(time == self.plateau_times_t[m][training_num])
 
-                    self.l[m].burst_t(burst_indices=burst_indices)
+                    self.l[m].plateau_t(plateau_indices=plateau_indices)
 
             if record_voltages:
                 # record voltages for this timestep
@@ -575,12 +570,12 @@ class Network:
                     self.B_hists[m][time, :] = self.l[m].B[:, 0]
                     self.C_hists[m][time, :] = self.l[m].C[:, 0]
 
-        if not use_rand_burst_times:
+        if not use_rand_plateau_times:
             for m in xrange(self.M-2, -1, -1):
-                burst_indices = np.arange(self.n[m])
+                plateau_indices = np.arange(self.n[m])
 
-                # perform bursting for hidden layer neurons
-                self.l[m].burst_t(burst_indices=burst_indices)
+                # calculate plateau potentials for hidden layer neurons
+                self.l[m].plateau_t(plateau_indices=plateau_indices)
 
         for m in xrange(self.M-1, -1, -1):
             # calculate averages
@@ -594,7 +589,7 @@ class Network:
             self.l[m].update_W()
 
         if record_loss:
-            self.loss = ((self.l[-1].average_phi_C_t - phi(self.l[-1].average_C_f)) ** 2).mean()
+            self.loss = ((self.l[-1].average_lambda_C_t - lambda_max*sigma(self.l[-1].average_C_f)) ** 2).mean()
 
         for m in xrange(self.M-1, -1, -1):
             # reset averages
@@ -603,12 +598,12 @@ class Network:
             self.l[m].average_PSP_B_f *= 0
 
             if m == self.M-1:
-                self.l[m].average_phi_C_f *= 0
-                self.l[m].average_phi_C_t *= 0
+                self.l[m].average_lambda_C_f *= 0
+                self.l[m].average_lambda_C_t *= 0
             else:
                 self.l[m].average_A_f     *= 0
                 self.l[m].average_A_t     *= 0
-                self.l[m].average_phi_C_f *= 0
+                self.l[m].average_lambda_C_f *= 0
                 if update_feedback_weights:
                     self.l[m].average_PSP_A_f *= 0
 
@@ -707,7 +702,7 @@ class Network:
                 'n_full_test'            : n_full_test,
                 'n_quick_test'           : n_quick_test,
                 'use_rand_phase_lengths' : use_rand_phase_lengths,
-                'use_rand_burst_times'   : use_rand_burst_times,
+                'use_rand_plateau_times' : use_rand_plateau_times,
                 'use_conductances'       : use_conductances,
                 'use_broadcast'          : use_broadcast,
                 'use_spiking_feedback'   : use_spiking_feedback,
@@ -724,7 +719,8 @@ class Network:
                 'record_voltages'        : record_voltages,
                 'record_training_error'  : record_training_error,
                 'record_training_labels' : record_training_labels,
-                'record_burst_times'     : record_burst_times,
+                'record_phase_times'     : record_phase_times,
+                'record_plateau_times'   : record_plateau_times,
                 'record_eigvals'         : record_eigvals,
                 'record_matrices'        : record_matrices,
                 'plot_eigvals'           : plot_eigvals,
@@ -734,7 +730,7 @@ class Network:
                 'l_f_phase'              : l_f_phase,
                 'l_t_phase'              : l_t_phase,
                 'l_f_phase_test'         : l_f_phase_test,
-                'phi_max'                : phi_max,
+                'lambda_max'             : lambda_max,
                 'tau_s'                  : tau_s,
                 'tau_L'                  : tau_L,
                 'g_B'                    : g_B,
@@ -788,8 +784,8 @@ class Network:
                 if record_training_labels:
                     self.prev_training_labels = np.load(os.path.join(self.simulation_path, "training_labels.npy"))
 
-                if record_burst_times:
-                    self.prev_burst_times_full = [ np.load(os.path.join(self.simulation_path, "burst_times_{}.npy".format(m))) for m in range(self.M)]
+                if record_plateau_times:
+                    self.prev_plateau_times_full = [ np.load(os.path.join(self.simulation_path, "plateau_times_{}.npy".format(m))) for m in range(self.M)]
 
                 if record_phase_times:
                     self.prev_phase_times = np.load(os.path.join(self.simulation_path, "phase_times.npy"))
@@ -825,8 +821,8 @@ class Network:
         if record_training_error:
             self.training_errors = np.zeros(n_epochs)
 
-        if record_burst_times:
-            self.burst_times_full = [ np.zeros((n_epochs*2*n_training_examples, self.n[m])) for m in range(self.M) ]
+        if record_plateau_times:
+            self.plateau_times_full = [ np.zeros((n_epochs*2*n_training_examples, self.n[m])) for m in range(self.M) ]
 
         if record_phase_times:
             self.phase_times = np.zeros(n_epochs*n_training_examples*2)
@@ -944,17 +940,17 @@ class Network:
             # shuffle the training data
             self.x_train, self.t_train = shuffle_arrays(self.x_train, self.t_train)
 
-            # generate arrays of forward phase burst times (time until burst from start of forward phase) for individual neurons
-            if use_rand_burst_times:
-                self.burst_times_f = [ np.zeros((n_training_examples, self.n[m])) + l_f_phases[k*n_training_examples:(k+1)*n_training_examples, np.newaxis] - 1 - np.minimum(np.abs(np.random.normal(0, 3, size=(n_training_examples, self.n[m])).astype(int)), 5) for m in range(self.M) ]
+            # generate arrays of forward phase plateau potential times (time until plateau potential from start of forward phase) for individual neurons
+            if use_rand_plateau_times:
+                self.plateau_times_f = [ np.zeros((n_training_examples, self.n[m])) + l_f_phases[k*n_training_examples:(k+1)*n_training_examples, np.newaxis] - 1 - np.minimum(np.abs(np.random.normal(0, 3, size=(n_training_examples, self.n[m])).astype(int)), 5) for m in range(self.M) ]
             else:
-                self.burst_times_f = [ np.zeros((n_training_examples, self.n[m])) + l_f_phases[k*n_training_examples:(k+1)*n_training_examples, np.newaxis] - 1 for m in range(self.M) ]
+                self.plateau_times_f = [ np.zeros((n_training_examples, self.n[m])) + l_f_phases[k*n_training_examples:(k+1)*n_training_examples, np.newaxis] - 1 for m in range(self.M) ]
 
-            # generate arrays of target phase burst times (time until burst from start of target phase) for individual neurons
-            if use_rand_burst_times:
-                self.burst_times_t = [ np.zeros((n_training_examples, self.n[m])) + l_t_phases[k*n_training_examples:(k+1)*n_training_examples, np.newaxis] - 1 - np.minimum(np.abs(np.random.normal(0, 3, size=(n_training_examples, self.n[m])).astype(int)), 5) for m in range(self.M) ]
+            # generate arrays of target phase plateau potential times (time until plateau potential from start of target phase) for individual neurons
+            if use_rand_plateau_times:
+                self.plateau_times_t = [ np.zeros((n_training_examples, self.n[m])) + l_t_phases[k*n_training_examples:(k+1)*n_training_examples, np.newaxis] - 1 - np.minimum(np.abs(np.random.normal(0, 3, size=(n_training_examples, self.n[m])).astype(int)), 5) for m in range(self.M) ]
             else:
-                self.burst_times_t = [ np.zeros((n_training_examples, self.n[m])) + l_t_phases[k*n_training_examples:(k+1)*n_training_examples, np.newaxis] - 1 for m in range(self.M) ]
+                self.plateau_times_t = [ np.zeros((n_training_examples, self.n[m])) + l_t_phases[k*n_training_examples:(k+1)*n_training_examples, np.newaxis] - 1 for m in range(self.M) ]
 
             for n in xrange(n_training_examples):
                 # set start time
@@ -967,13 +963,13 @@ class Network:
 
                 l_phases_tot = l_f_phase + l_t_phase
 
-                # get burst times from the beginning of the simulation
-                if record_burst_times:
+                # get plateau potential times from the beginning of the simulation
+                if record_plateau_times:
                     total_time_to_forward_phase = np.sum(l_f_phases[:k*n_training_examples + n]) + np.sum(l_t_phases[:k*n_training_examples + n])
                     total_time_to_target_phase  = np.sum(l_f_phases[:k*n_training_examples + n + 1]) + np.sum(l_t_phases[:k*n_training_examples + n])
                     for m in range(self.M):
-                        self.burst_times_full[m][k*n_training_examples + 2*n]     = total_time_to_forward_phase + self.burst_times_f[m][n]
-                        self.burst_times_full[m][k*n_training_examples + 2*n + 1] = total_time_to_target_phase + self.burst_times_t[m][n]
+                        self.plateau_times_full[m][k*n_training_examples + 2*n]     = total_time_to_forward_phase + self.plateau_times_f[m][n]
+                        self.plateau_times_full[m][k*n_training_examples + 2*n + 1] = total_time_to_target_phase + self.plateau_times_t[m][n]
 
                 # print every 100 examples
                 if (n+1) % 100 == 0:
@@ -981,14 +977,14 @@ class Network:
                     sys.stdout.flush()
 
                 # get training example data
-                self.x = phi_max*self.x_train[:, n][:, np.newaxis]
+                self.x = lambda_max*self.x_train[:, n][:, np.newaxis]
                 self.t = self.t_train[:, n][:, np.newaxis]
 
                 if record_voltages:
                     # initialize voltage arrays
-                    self.A_hists     = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M-1)]
-                    self.B_hists     = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M)]
-                    self.C_hists     = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M)]
+                    self.A_hists = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M-1)]
+                    self.B_hists = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M)]
+                    self.C_hists = [ np.zeros((l_f_phase, self.l[m].size)) for m in xrange(self.M)]
 
                 # do forward & target phases
                 self.f_phase(self.x, None, n, training=True)
@@ -1136,8 +1132,8 @@ class Network:
                                 if record_training_labels:
                                     training_labels = self.training_labels[:(k+1)*n_training_examples]
 
-                                if record_burst_times:
-                                    burst_times_full = [ self.burst_times_full[m][:(k+1)*2*n_training_examples] for m in range(self.M) ]
+                                if record_plateau_times:
+                                    plateau_times_full = [ self.plateau_times_full[m][:(k+1)*2*n_training_examples] for m in range(self.M) ]
 
                                 if record_training_error:
                                     training_errors = self.training_errors[:k+1]
@@ -1149,7 +1145,7 @@ class Network:
                                         jacobian_prod_matrices = self.jacobian_prod_matrices[:(k+1)*n_training_examples]
                                         weight_prod_matrices   = self.weight_prod_matrices[:(k+1)*n_training_examples+1]
                             else:
-                                # this is a continuation of a previously-started simulation
+                                # this is a continuation of a previously-started simulation; append current recording vectors to previous ones
                                 quick_test_errs = np.concatenate([self.prev_quick_test_errs, self.quick_test_errs[:(k+1)*int(n_training_examples/1000)]], axis=0)
                                 if n == n_training_examples - 1:
                                     full_test_errs = np.concatenate([self.prev_full_test_errs, self.full_test_errs[:k+1]], axis=0)
@@ -1163,8 +1159,8 @@ class Network:
                                 if record_training_labels:
                                     training_labels = np.concatenate([self.prev_training_labels, self.training_labels[:(k+1)*n_training_examples]], axis=0)
 
-                                if record_burst_times:
-                                    burst_times_full = [ np.concatenate([self.prev_burst_times_full[m], self.burst_times_full[m][:(k+1)*2*n_training_examples]]) for m in range(self.M) ]
+                                if record_plateau_times:
+                                    plateau_times_full = [ np.concatenate([self.prev_plateau_times_full[m], self.plateau_times_full[m][:(k+1)*2*n_training_examples]]) for m in range(self.M) ]
 
                                 if record_training_error:
                                     training_errors = np.concatenate([self.prev_training_errors, self.training_errors[:k+1]], axis=0)
@@ -1197,9 +1193,9 @@ class Network:
                             if record_training_labels:
                                 np.save(os.path.join(self.simulation_path, "training_labels.npy"), training_labels)
 
-                            if record_burst_times:
+                            if record_plateau_times:
                                 for m in range(self.M):
-                                    np.save(os.path.join(self.simulation_path, "burst_times_{}.npy".format(m)), self.burst_times_full[m])
+                                    np.save(os.path.join(self.simulation_path, "plateau_times_{}.npy".format(m)), self.plateau_times_full[m])
 
                             if record_training_error:
                                 np.save(os.path.join(self.simulation_path, "training_errors.npy"), training_errors)
@@ -1280,7 +1276,7 @@ class Network:
             self.x_hist *= 0
 
             # get testing example data
-            self.x = phi_max*self.x_test[:, n][:, np.newaxis]
+            self.x = lambda_max*self.x_test[:, n][:, np.newaxis]
             self.t = self.t_test[:, n][:, np.newaxis]
 
             # do a forward phase & get the unit with maximum average somatic potential
@@ -1384,7 +1380,7 @@ class Layer:
         Generate Poisson spikes based on the firing rates of the neurons.
         '''
 
-        self.S_hist = np.concatenate([self.S_hist[:, 1:], np.random.poisson(self.phi_C)], axis=-1)
+        self.S_hist = np.concatenate([self.S_hist[:, 1:], np.random.poisson(self.lambda_C)], axis=-1)
 
 class hiddenLayer(Layer):
     def __init__(self, net, m, f_input_size, b_input_size):
@@ -1404,30 +1400,30 @@ class hiddenLayer(Layer):
         self.f_input_size = f_input_size
         self.b_input_size = b_input_size
 
-        self.A          = np.zeros((self.size, 1))
-        self.B          = np.zeros((self.size, 1))
-        self.C          = np.zeros((self.size, 1))
-        self.phi_C      = np.zeros((self.size, 1))
-        self.S_hist     = np.zeros((self.size, mem), dtype=np.int8)
-        self.A_hist     = np.zeros((self.size, integration_time))
-        self.PSP_A_hist = np.zeros((self.b_input_size, integration_time))
-        self.PSP_B_hist = np.zeros((self.f_input_size, integration_time))
-        self.C_hist     = np.zeros((self.size, integration_time))
-        self.phi_C_hist = np.zeros((self.size, integration_time))
+        self.A             = np.zeros((self.size, 1))
+        self.B             = np.zeros((self.size, 1))
+        self.C             = np.zeros((self.size, 1))
+        self.lambda_C      = np.zeros((self.size, 1))
+        self.S_hist        = np.zeros((self.size, mem), dtype=np.int8)
+        self.A_hist        = np.zeros((self.size, integration_time))
+        self.PSP_A_hist    = np.zeros((self.b_input_size, integration_time))
+        self.PSP_B_hist    = np.zeros((self.f_input_size, integration_time))
+        self.C_hist        = np.zeros((self.size, integration_time))
+        self.lambda_C_hist = np.zeros((self.size, integration_time))
 
         self.E       = np.zeros((self.size, 1))
         self.delta_W = np.zeros(self.net.W[self.m].shape)
         self.delta_Y = np.zeros(self.net.Y[self.m].shape)
         self.delta_b = np.zeros((self.size, 1))
 
-        self.average_C_f     = np.zeros((self.size, 1))
-        self.average_C_t     = np.zeros((self.size, 1))
-        self.average_A_f     = np.zeros((self.size, 1))
-        self.average_A_t     = np.zeros((self.size, 1))
-        self.average_phi_C_f = np.zeros((self.size, 1))
-        self.average_PSP_B_f = np.zeros((self.f_input_size, 1))
-        self.alpha_A_f       = np.zeros((self.size, 1))
-        self.alpha_A_t       = np.zeros((self.size, 1))
+        self.average_C_f        = np.zeros((self.size, 1))
+        self.average_C_t        = np.zeros((self.size, 1))
+        self.average_A_f        = np.zeros((self.size, 1))
+        self.average_A_t        = np.zeros((self.size, 1))
+        self.average_lambda_C_f = np.zeros((self.size, 1))
+        self.average_PSP_B_f    = np.zeros((self.f_input_size, 1))
+        self.alpha_f            = np.zeros((self.size, 1))
+        self.alpha_t            = np.zeros((self.size, 1))
 
         self.integration_counter = 0
 
@@ -1435,41 +1431,41 @@ class hiddenLayer(Layer):
             self.average_PSP_A_f = np.zeros((self.b_input_size, 1))
 
     def create_integration_vars(self):
-        self.A_hist     = np.zeros((self.size, integration_time))
-        self.PSP_A_hist = np.zeros((self.b_input_size, integration_time))
-        self.PSP_B_hist = np.zeros((self.f_input_size, integration_time))
-        self.C_hist     = np.zeros((self.size, integration_time))
-        self.phi_C_hist = np.zeros((self.size, integration_time))
+        self.A_hist        = np.zeros((self.size, integration_time))
+        self.PSP_A_hist    = np.zeros((self.b_input_size, integration_time))
+        self.PSP_B_hist    = np.zeros((self.f_input_size, integration_time))
+        self.C_hist        = np.zeros((self.size, integration_time))
+        self.lambda_C_hist = np.zeros((self.size, integration_time))
 
     def clear_vars(self):
         '''
         Clear all layer variables.
         '''
 
-        self.A          *= 0
-        self.B          *= 0
-        self.C          *= 0
-        self.phi_C      *= 0
-        self.S_hist     *= 0
-        self.A_hist     *= 0
-        self.PSP_A_hist *= 0
-        self.PSP_B_hist *= 0
-        self.C_hist     *= 0
-        self.phi_C_hist *= 0
+        self.A             *= 0
+        self.B             *= 0
+        self.C             *= 0
+        self.lambda_C      *= 0
+        self.S_hist        *= 0
+        self.A_hist        *= 0
+        self.PSP_A_hist    *= 0
+        self.PSP_B_hist    *= 0
+        self.C_hist        *= 0
+        self.lambda_C_hist *= 0
 
         self.E       *= 0
         self.delta_W *= 0
         self.delta_Y *= 0
         self.delta_b *= 0
 
-        self.average_C_f     *= 0
-        self.average_C_t     *= 0
-        self.average_A_f     *= 0
-        self.average_A_t     *= 0
-        self.average_phi_C_f *= 0
-        self.average_PSP_B_f *= 0
-        self.alpha_A_f       *= 0
-        self.alpha_A_t       *= 0
+        self.average_C_f        *= 0
+        self.average_C_t        *= 0
+        self.average_A_f        *= 0
+        self.average_A_t        *= 0
+        self.average_lambda_C_f *= 0
+        self.average_PSP_B_f    *= 0
+        self.alpha_f            *= 0
+        self.alpha_t            *= 0
 
         self.integration_counter = 0
 
@@ -1482,12 +1478,12 @@ class hiddenLayer(Layer):
         '''
 
         if not use_backprop:
-            self.E = (self.alpha_A_t - self.alpha_A_f)*-k_B*deriv_phi(self.average_C_f)
+            self.E = (self.alpha_t - self.alpha_f)*-k_B*lambda_max*deriv_sigma(self.average_C_f)
 
             if record_backprop_angle and not use_backprop and calc_E_bp:
-                self.E_bp = (np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*deriv_phi(self.average_C_f))
+                self.E_bp = (np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*lambda_max*deriv_sigma(self.average_C_f))
         else:
-            self.E_bp = (np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*deriv_phi(self.average_C_f))
+            self.E_bp = (np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*lambda_max*deriv_sigma(self.average_C_f))
             self.E    = self.E_bp
 
         if record_backprop_angle and (not use_backprop) and calc_E_bp:
@@ -1504,7 +1500,7 @@ class hiddenLayer(Layer):
         Update feedback weights.
         '''
 
-        E_inv = (phi(self.average_C_f) - self.alpha_A_f)*-deriv_phi(self.average_A_f)
+        E_inv = (lambda_max*sigma(self.average_C_f) - self.alpha_f)*-deriv_sigma(self.average_A_f)
 
         self.delta_Y        = np.dot(E_inv, self.average_PSP_A_f.T)
         self.net.Y[self.m] += -self.net.b_etas[self.m]*self.delta_Y
@@ -1560,8 +1556,8 @@ class hiddenLayer(Layer):
 
         self.C_hist[:, self.integration_counter % integration_time] = self.C[:, 0]
 
-        self.phi_C = phi(self.C)
-        self.phi_C_hist[:, self.integration_counter % integration_time] = self.phi_C[:, 0]
+        self.lambda_C = lambda_max*sigma(self.C)
+        self.lambda_C_hist[:, self.integration_counter % integration_time] = self.lambda_C[:, 0]
 
     def out_f(self, f_input, b_input):
         '''
@@ -1595,33 +1591,33 @@ class hiddenLayer(Layer):
 
         self.integration_counter = (self.integration_counter + 1) % integration_time
 
-    def burst_f(self, burst_indices):
+    def plateau_f(self, plateau_indices):
         '''
-        Perform forward phase bursting.
+        Calculate forward phase apical plateau potentials.
 
         Arguments:
-            burst_indices (ndarray) : Indices of neurons that are bursting.
+            plateau_indices (ndarray) : Indices of neurons that are undergoing apical plateau potentials.
         '''
 
-        # calculate average apical potentials for bursting neurons
-        self.average_A_f[burst_indices] = np.mean(self.A_hist[burst_indices], axis=-1)[:, np.newaxis]
+        # calculate average apical potentials for neurons undergoing plateau potentials
+        self.average_A_f[plateau_indices] = np.mean(self.A_hist[plateau_indices], axis=-1)[:, np.newaxis]
 
         # calculate apical calcium spike nonlinearity
-        self.alpha_A_f[burst_indices] = alpha(self.average_A_f[burst_indices])
+        self.alpha_f[plateau_indices] = sigma(self.average_A_f[plateau_indices])
 
-    def burst_t(self, burst_indices):
+    def plateau_t(self, plateau_indices):
         '''
-        Perform target phase bursting.
+        Calculate target phase apical plateau potentials.
 
         Arguments:
-            burst_indices (ndarray) : Indices of neurons that are bursting.
+            plateau_indices (ndarray) : Indices of neurons that are undergoing apical plateau potentials.
         '''
 
-        # calculate average apical potentials for bursting neurons
-        self.average_A_t[burst_indices] = np.mean(self.A_hist[burst_indices], axis=-1)[:, np.newaxis]
+        # calculate average apical potentials for neurons undergoing plateau potentials
+        self.average_A_t[plateau_indices] = np.mean(self.A_hist[plateau_indices], axis=-1)[:, np.newaxis]
 
         # calculate apical calcium spike nonlinearity
-        self.alpha_A_t[burst_indices] = alpha(self.average_A_t[burst_indices])
+        self.alpha_t[plateau_indices] = sigma(self.average_A_t[plateau_indices])
 
     def calc_averages(self, phase):
         '''
@@ -1633,15 +1629,15 @@ class hiddenLayer(Layer):
         '''
 
         if phase == "forward":
-            self.average_C_f     = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
-            self.average_phi_C_f = np.mean(self.phi_C_hist, axis=-1)[:, np.newaxis]
-            self.average_PSP_B_f = np.mean(self.PSP_B_hist, axis=-1)[:, np.newaxis]
+            self.average_C_f        = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
+            self.average_lambda_C_f = np.mean(self.lambda_C_hist, axis=-1)[:, np.newaxis]
+            self.average_PSP_B_f    = np.mean(self.PSP_B_hist, axis=-1)[:, np.newaxis]
 
             if update_feedback_weights:
                 self.average_PSP_A_f = np.mean(self.PSP_A_hist, axis=-1)[:, np.newaxis]
         elif phase == "target":
-            self.average_C_t     = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
-            self.average_phi_C_t = np.mean(self.phi_C_hist, axis=-1)[:, np.newaxis]
+            self.average_C_t        = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
+            self.average_lambda_C_t = np.mean(self.lambda_C_hist, axis=-1)[:, np.newaxis]
 
             if update_feedback_weights:
                 self.average_PSP_A_t = np.mean(self.PSP_A_hist, axis=-1)[:, np.newaxis]
@@ -1666,31 +1662,31 @@ class finalLayer(Layer):
 
         self.f_input_size = f_input_size
 
-        self.B          = np.zeros((self.size, 1))
-        self.I          = np.zeros((self.size, 1))
-        self.C          = np.zeros((self.size, 1))
-        self.phi_C      = np.zeros((self.size, 1))
-        self.S_hist     = np.zeros((self.size, mem), dtype=np.int8)
-        self.PSP_B_hist = np.zeros((self.f_input_size, integration_time))
-        self.C_hist     = np.zeros((self.size, integration_time))
-        self.phi_C_hist = np.zeros((self.size, integration_time))
+        self.B             = np.zeros((self.size, 1))
+        self.I             = np.zeros((self.size, 1))
+        self.C             = np.zeros((self.size, 1))
+        self.lambda_C      = np.zeros((self.size, 1))
+        self.S_hist        = np.zeros((self.size, mem), dtype=np.int8)
+        self.PSP_B_hist    = np.zeros((self.f_input_size, integration_time))
+        self.C_hist        = np.zeros((self.size, integration_time))
+        self.lambda_C_hist = np.zeros((self.size, integration_time))
 
         self.E       = np.zeros((self.size, 1))
         self.delta_W = np.zeros(self.net.W[self.m].shape)
         self.delta_b = np.zeros((self.size, 1))
 
-        self.average_C_f     = np.zeros((self.size, 1))
-        self.average_C_t     = np.zeros((self.size, 1))
-        self.average_phi_C_f = np.zeros((self.size, 1))
-        self.average_phi_C_t = np.zeros((self.size, 1))
-        self.average_PSP_B_f = np.zeros((self.f_input_size, 1))
+        self.average_C_f        = np.zeros((self.size, 1))
+        self.average_C_t        = np.zeros((self.size, 1))
+        self.average_lambda_C_f = np.zeros((self.size, 1))
+        self.average_lambda_C_t = np.zeros((self.size, 1))
+        self.average_PSP_B_f    = np.zeros((self.f_input_size, 1))
 
         self.integration_counter = 0
 
     def create_integration_vars(self):
-        self.PSP_B_hist = np.zeros((self.f_input_size, integration_time))
-        self.C_hist     = np.zeros((self.size, integration_time))
-        self.phi_C_hist = np.zeros((self.size, integration_time))
+        self.PSP_B_hist    = np.zeros((self.f_input_size, integration_time))
+        self.C_hist        = np.zeros((self.size, integration_time))
+        self.lambda_C_hist = np.zeros((self.size, integration_time))
 
         self.integration_counter = 0
 
@@ -1699,24 +1695,24 @@ class finalLayer(Layer):
         Clear all layer variables.
         '''
 
-        self.B          *= 0
-        self.I          *= 0
-        self.C          *= 0
-        self.phi_C      *= 0
-        self.S_hist     *= 0
-        self.PSP_B_hist *= 0
-        self.C_hist     *= 0
-        self.phi_C_hist *= 0
+        self.B             *= 0
+        self.I             *= 0
+        self.C             *= 0
+        self.lambda_C      *= 0
+        self.S_hist        *= 0
+        self.PSP_B_hist    *= 0
+        self.C_hist        *= 0
+        self.lambda_C_hist *= 0
 
         self.E       *= 0
         self.delta_W *= 0
         self.delta_b *= 0
 
-        self.average_C_f     *= 0
-        self.average_C_t     *= 0
-        self.average_phi_C_f *= 0
-        self.average_phi_C_t *= 0
-        self.average_PSP_B_f *= 0
+        self.average_C_f        *= 0
+        self.average_C_t        *= 0
+        self.average_lambda_C_f *= 0
+        self.average_lambda_C_t *= 0
+        self.average_PSP_B_f    *= 0
 
         self.integration_counter = 0
 
@@ -1725,10 +1721,10 @@ class finalLayer(Layer):
         Update feedforward weights.
         '''
 
-        self.E = (self.average_phi_C_t - phi(self.average_C_f))*-k_D*deriv_phi(self.average_C_f)
+        self.E = (self.average_lambda_C_t - lambda_max*sigma(self.average_C_f))*-k_D*lambda_max*deriv_sigma(self.average_C_f)
 
         if use_backprop or (record_backprop_angle and calc_E_bp):
-            self.E_bp = (self.average_phi_C_t - phi(self.average_C_f))*-k_D*deriv_phi(self.average_C_f)
+            self.E_bp = (self.average_lambda_C_t - lambda_max*sigma(self.average_C_f))*-k_D*lambda_max*deriv_sigma(self.average_C_f)
 
         self.delta_W        = np.dot(self.E, self.average_PSP_B_f.T)
         self.net.W[self.m] += -self.net.f_etas[self.m]*P_final*self.delta_W
@@ -1794,8 +1790,8 @@ class finalLayer(Layer):
 
         self.C_hist[:, self.integration_counter % integration_time] = self.C[:, 0]
 
-        self.phi_C = phi(self.C)
-        self.phi_C_hist[:, self.integration_counter % integration_time] = self.phi_C[:, 0]
+        self.lambda_C = lambda_max*sigma(self.C)
+        self.lambda_C_hist[:, self.integration_counter % integration_time] = self.lambda_C[:, 0]
 
     def out_f(self, f_input, b_input):
         '''
@@ -1839,12 +1835,12 @@ class finalLayer(Layer):
         '''
 
         if phase == "forward":
-            self.average_C_f     = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
-            self.average_phi_C_f = np.mean(self.phi_C_hist, axis=-1)[:, np.newaxis]
-            self.average_PSP_B_f = np.mean(self.PSP_B_hist, axis=-1)[:, np.newaxis]
+            self.average_C_f        = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
+            self.average_lambda_C_f = np.mean(self.lambda_C_hist, axis=-1)[:, np.newaxis]
+            self.average_PSP_B_f    = np.mean(self.PSP_B_hist, axis=-1)[:, np.newaxis]
         elif phase == "target":
-            self.average_C_t     = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
-            self.average_phi_C_t = np.mean(self.phi_C_hist, axis=-1)[:, np.newaxis]
+            self.average_C_t        = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
+            self.average_lambda_C_t = np.mean(self.lambda_C_hist, axis=-1)[:, np.newaxis]
 
 # ---------------------------------------------------------------
 """                     Helper functions                      """
@@ -1857,8 +1853,8 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
 
         Arguments:
             latest_epoch (int)          : The latest epoch of this simulation that has been completed.
-            simulations_folder (string) : Name of the parent folder that contains the folder for this simulation.
             folder_name (string)        : Name of the subfolder in the parent folder that contains data from this simulation.
+            simulations_folder (string) : Name of the parent folder that contains the folder for this simulation.
         
         Returns:
             net (Network)             : Network object with re-loaded weights.
@@ -1881,13 +1877,13 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
 
     # set global parameters
     global n_full_test, n_quick_test
-    global use_rand_phase_lengths, use_rand_burst_times, use_conductances, use_broadcast, use_spiking_feedback, use_spiking_feedforward
+    global use_rand_phase_lengths, use_rand_plateau_times, use_conductances, use_broadcast, use_spiking_feedback, use_spiking_feedforward
     global use_symmetric_weights, noisy_symmetric_weights
     global use_sparse_feedback, update_feedback_weights, use_backprop, use_apical_conductance, use_weight_optimization
-    global record_backprop_angle, record_loss, record_training_error, record_training_labels, record_burst_times, record_voltages, record_eigvals, record_matrices, plot_eigvals
+    global record_backprop_angle, record_loss, record_training_error, record_training_labels, record_phase_times, record_plateau_times, record_voltages, record_eigvals, record_matrices, plot_eigvals
     global dt, mem, integration_time
     global l_f_phase, l_t_phase, l_f_phase_test
-    global phi_max
+    global lambda_max
     global tau_s, tau_L
     global g_B, g_A, g_L, g_D
     global k_B, k_D, k_I
@@ -1897,7 +1893,7 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     n_full_test             = params['n_full_test']
     n_quick_test            = params['n_quick_test']
     use_rand_phase_lengths  = params['use_rand_phase_lengths']
-    use_rand_burst_times    = params['use_rand_burst_times']
+    use_rand_plateau_times  = params['use_rand_plateau_times']
     use_conductances        = params['use_conductances']
     use_broadcast           = params['use_broadcast']
     use_spiking_feedback    = params['use_spiking_feedback']
@@ -1912,7 +1908,8 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     record_loss             = params['record_loss']
     record_training_error   = params['record_training_error']
     record_training_labels  = params['record_training_labels']
-    record_burst_times      = params['record_burst_times']
+    record_phase_times      = params['record_phase_times']
+    record_plateau_times    = params['record_plateau_times']
     record_voltages         = params['record_voltages']
     record_eigvals          = params['record_eigvals']
     record_matrices         = params['record_matrices']
@@ -1923,7 +1920,7 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     l_f_phase               = params['l_f_phase']
     l_t_phase               = params['l_t_phase']
     l_f_phase_test          = params['l_f_phase_test']
-    phi_max                 = params['phi_max']
+    lambda_max              = params['lambda_max']
     tau_s                   = params['tau_s']
     tau_L                   = params['tau_L']
     g_B                     = params['g_B']
