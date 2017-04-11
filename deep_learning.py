@@ -203,7 +203,7 @@ class Network:
             V_sm  = V_sd**2 + V_avg**2 # second moment of dendritic potential
 
         # initialize lists of weight matrices & bias vectors
-        self.W, self.b, self.Y, self.c = ([0]*self.M for _ in xrange(4))
+        self.W, self.b, self.Y = ([0]*self.M for _ in xrange(3))
 
         if use_sparse_feedback:
             # initialize list of indices of zeroed-out weights
@@ -237,29 +237,17 @@ class Network:
                 if use_broadcast:
                     if use_weight_optimization:
                         self.Y[m-1] = np.dot(3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5), self.Y[m])
-                        self.c[m-1] = np.dot(self.Y[m-1], 3.465*W_sd*(np.random.uniform(size=(self.n[-1], 1)) - 0.5))
                     else:
                         self.Y[m-1] = (np.random.uniform(size=(N, self.n[-1])) - 0.5)
-                        self.c[m-1] = (np.random.uniform(size=(N, 1)) - 0.5)
                 else:
                     if use_weight_optimization:
                          self.Y[m-1] = (W_avg + 3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5))
-                         self.c[m-1] = (W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5))
                     else:
                         self.Y[m-1] = (np.random.uniform(size=(N, self.n[m])) - 0.5)
-                        self.c[m-1] = (np.random.uniform(size=(self.n[m], 1)) - 0.5)
 
         if use_symmetric_weights == True:
             # enforce symmetric weights
             self.make_weights_symmetric()
-
-        for m in xrange(self.M-1, -1, -1):
-            print("Layer {0} -- {1} units.".format(m, self.n[m]))
-            print("\tW_avg: {0:.6f},\tW_sd: {1:.6f},\n".format(np.mean(self.W[m]), np.std(self.W[m]))
-                + "\tb_avg: {0:.6f},\tb_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
-                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f},\n".format(np.mean(self.Y[m]), np.std(self.Y[m]))
-                + "\tc_avg: {0:.6f},\tc_sd: {1:.6f}.".format(np.mean(self.c[m]), np.std(self.c[m])))
-        print("--------------------------------\n")
 
         if use_sparse_feedback:
             # randomly zero out 80% of weights, increase magnitude of surviving weights to keep desired average voltages
@@ -267,6 +255,13 @@ class Network:
                 self.Y_dropout_indices[m] = np.random.choice(len(self.Y[m].ravel()), int(0.8*len(self.Y[m].ravel())), False)
                 self.Y[m].ravel()[self.Y_dropout_indices[m]] = 0
                 self.Y[m] *= 5
+
+        for m in xrange(self.M-1, -1, -1):
+            print("Layer {0} -- {1} units.".format(m, self.n[m]))
+            print("\tW_avg: {0:.6f},\tW_sd: {1:.6f},\n".format(np.mean(self.W[m]), np.std(self.W[m]))
+                + "\tb_avg: {0:.6f},\tb_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
+                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f},\n".format(np.mean(self.Y[m]), np.std(self.Y[m]))
+        print("--------------------------------\n")
 
     def make_weights_symmetric(self):
         '''
@@ -526,7 +521,7 @@ class Network:
                 self.J_betas = self.J_betas[1:]
                 self.J_gammas = self.J_gammas[1:]
             self.J_betas.append(np.multiply(deriv_phi(self.l[-1].average_C_f), k_D*self.W[-1]))
-            self.J_gammas.append(np.multiply(deriv_alpha(np.dot(self.Y[-2], phi(self.l[-1].average_C_f)) + self.c[-2]), self.Y[-2]))
+            self.J_gammas.append(np.multiply(deriv_alpha(np.dot(self.Y[-2], phi(self.l[-1].average_C_f))), self.Y[-2]))
 
         if record_voltages and training:
             # append voltages to files
@@ -1341,7 +1336,6 @@ class Network:
             np.save(os.path.join(path, prefix + "f_weights_{}.npy".format(m)), self.W[m])
             np.save(os.path.join(path, prefix + "f_bias_{}.npy".format(m)), self.b[m])
             np.save(os.path.join(path, prefix + "b_weights_{}.npy".format(m)), self.Y[m])
-            np.save(os.path.join(path, prefix + "b_bias_{}.npy".format(m)), self.c[m])
 
     def load_weights(self, path, prefix=""):
         '''
@@ -1359,14 +1353,12 @@ class Network:
             self.W[m] = np.load(os.path.join(path, prefix + "f_weights_{}.npy".format(m)))
             self.b[m] = np.load(os.path.join(path, prefix + "f_bias_{}.npy".format(m)))
             self.Y[m] = np.load(os.path.join(path, prefix + "b_weights_{}.npy".format(m)))
-            # self.c[m] = np.load(os.path.join(path, prefix + "b_bias_{}.npy".format(m)))
 
         for m in xrange(self.M-1, -1, -1):
             print("Layer {0} -- {1} units.".format(m, self.n[m]))
             print("\tW_avg: {0:.6f},\tW_sd: {1:.6f},\n".format(np.mean(self.W[m]), np.std(self.W[m]))
                 + "\tb_avg: {0:.6f},\tb_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
                 + "\tY_avg: {0:.6f},\tY_sd: {1:.6f},\n".format(np.mean(self.Y[m]), np.std(self.Y[m]))
-                + "\tc_avg: {0:.6f},\tc_sd: {1:.6f}.".format(np.mean(self.c[m]), np.std(self.c[m])))
         print("--------------------------------\n")
 
 # ---------------------------------------------------------------
@@ -1532,7 +1524,7 @@ class hiddenLayer(Layer):
 
         self.PSP_A_hist[:, self.integration_counter % integration_time] = self.PSP_A[:, 0]
 
-        self.A = np.dot(self.net.Y[self.m], self.PSP_A) + self.net.c[self.m]
+        self.A = np.dot(self.net.Y[self.m], self.PSP_A)
         self.A_hist[:, self.integration_counter % integration_time] = self.A[:, 0]
 
     def update_B(self, f_input):
