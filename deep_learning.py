@@ -50,6 +50,8 @@ n_quick_test = 100   # number of examples to use for quick tests (every 1000 exa
 """                 Simulation parameters                     """
 # ---------------------------------------------------------------
 
+nonspiking_mode         = False # whether to run in non-spiking mode (real-valued outputs)
+
 use_rand_phase_lengths  = True  # use random phase lengths (chosen from Wald distribution)
 use_rand_plateau_times  = False # randomly sample the time of each neuron's apical plateau potential
 use_conductances        = True  # use conductances between dendrites and soma
@@ -92,6 +94,26 @@ l_f_phase_test = int(250/dt) # length of forward phase for tests (time steps)
 integration_time      = l_f_phase - int(30/dt)      # time steps of integration of neuronal variables used for plasticity
 integration_time_test = l_f_phase_test - int(30/dt) # time steps of integration of neuronal variables during testing
 
+if nonspiking_mode:
+    print("* ------------ Running in non-spiking mode. ------------ *")
+
+    # set parameters for non-spiking mode
+    use_rand_phase_lengths  = False
+    use_rand_plateau_times  = False
+    use_conductances        = False
+    use_spiking_feedforward = False
+    use_sparse_feedback     = False
+    record_phase_times      = False
+    record_plateau_times    = False
+    record_voltages         = False
+
+    l_f_phase             = 1
+    l_t_phase             = 1
+    l_f_phase_test        = 1
+    integration_time      = 1
+    integration_time_test = 1
+    mem                   = 1
+
 if use_rand_phase_lengths:
     # set minimum phase lengths
     min_l_f_phase = l_f_phase
@@ -109,9 +131,8 @@ g_A = 0.05 if use_apical_conductance else 0 # apical conductance
 g_L = 1.0/tau_L                             # leak conductance
 g_D = g_B                                   # dendritic conductance in output layer
 
-if use_conductances:
-    E_E = 8  # excitation reversal potential
-    E_I = -8 # inhibition reversal potential
+E_E = 8  # excitation reversal potential
+E_I = -8 # inhibition reversal potential
 
 # steady state constants
 k_B = g_B/(g_L + g_B + g_A)
@@ -699,6 +720,7 @@ class Network:
             shutil.copyfile(filename, os.path.join(self.simulation_path, filename))
 
             params = {
+                'nonspiking_mode'        : nonspiking_mode,
                 'n_full_test'            : n_full_test,
                 'n_quick_test'           : n_quick_test,
                 'use_rand_phase_lengths' : use_rand_phase_lengths,
@@ -1761,12 +1783,14 @@ class finalLayer(Layer):
         if b_input is None:
             self.I *= 0
         else:
+            g_E = b_input
+            g_I = -g_E + 1
             if use_conductances:
-                g_E = b_input
-                g_I = -g_E + 1
                 self.I = g_E*(E_E - self.C) + g_I*(E_I - self.C)
             else:
-                self.I = (8*b_input - 4)
+                self.k_D2 = g_D/(g_L + g_D + g_E + g_I)
+                self.k_E  = g_E/(g_L + g_D + g_E + g_I)
+                self.k_I  = g_I/(g_L + g_D + g_E + g_I)
 
     def update_C(self, phase):
         '''
@@ -1786,7 +1810,7 @@ class finalLayer(Layer):
             if phase == "forward":
                 self.C = k_D*self.B
             elif phase == "target":
-                self.C = k_D*self.B + k_I*self.I
+                self.C = self.k_D2*self.B + self.k_E*E_E + self.k_I*E_I
 
         self.C_hist[:, self.integration_counter % integration_time] = self.C[:, 0]
 
@@ -1876,6 +1900,7 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
         params = json.loads(simulation_file.read())
 
     # set global parameters
+    global nonspiking_mode
     global n_full_test, n_quick_test
     global use_rand_phase_lengths, use_rand_plateau_times, use_conductances, use_broadcast, use_spiking_feedback, use_spiking_feedforward
     global use_symmetric_weights, noisy_symmetric_weights
@@ -1890,6 +1915,7 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     global P_hidden, P_final
     global kappas
 
+    nonspiking_mode         = params['nonspiking_mode']
     n_full_test             = params['n_full_test']
     n_quick_test            = params['n_quick_test']
     use_rand_phase_lengths  = params['use_rand_phase_lengths']
@@ -1937,6 +1963,26 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     f_etas                  = params['f_etas']
     b_etas                  = params['b_etas']
     n_training_examples     = params['n_training_examples']
+
+    if nonspiking_mode:
+        print("* ------------ Running in non-spiking mode. ------------ *")
+
+        # set parameters for non-spiking mode
+        use_rand_phase_lengths  = False
+        use_rand_plateau_times  = False
+        use_conductances        = False
+        use_spiking_feedforward = False
+        use_sparse_feedback     = False
+        record_phase_times      = False
+        record_plateau_times    = False
+        record_voltages         = False
+
+        l_f_phase             = 1
+        l_t_phase             = 1
+        l_f_phase_test        = 1
+        integration_time      = 1
+        integration_time_test = 1
+        mem                   = 1
 
     # create network and load weights
     net = Network(n=n)
