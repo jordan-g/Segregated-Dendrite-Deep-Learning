@@ -51,9 +51,9 @@ n_quick_test = 100   # number of examples to use for quick tests (every 1000 exa
 """                 Simulation parameters                     """
 # ---------------------------------------------------------------
 
-nonspiking_mode         = False # whether to run in non-spiking mode
+nonspiking_mode         = False # whether to run in non-spiking mode (real-valued outputs)
 
-use_rand_phase_lengths  = True # use random phase lengths (chosen from Wald distribution)
+use_rand_phase_lengths  = True  # use random phase lengths (chosen from Wald distribution)
 use_rand_plateau_times  = False # randomly sample the time of each neuron's apical plateau potential
 use_conductances        = True # use conductances between dendrites and soma
 use_broadcast           = True  # use broadcast (ie. feedback to all layers comes from output layer)
@@ -100,6 +100,7 @@ integration_time_test = l_f_phase_test - int(30/dt) # time steps of integration 
 if nonspiking_mode:
     print("* ------------ Running in non-spiking mode. ------------ *")
 
+    # set parameters for non-spiking mode
     use_rand_phase_lengths  = False
     use_rand_plateau_times  = False
     use_conductances        = False
@@ -226,7 +227,7 @@ class Network:
             V_sm  = V_sd**2 + V_avg**2 # second moment of dendritic potential
 
         # initialize lists of weight matrices & bias vectors
-        self.W, self.b, self.Y = ([0]*self.M for _ in xrange(3))
+        self.W, self.b, self.Y, self.c = ([0]*self.M for _ in xrange(4))
 
         if use_sparse_coding:
             # initialize list of inhibitory weights
@@ -263,17 +264,18 @@ class Network:
             if m != 0:
                 if use_broadcast:
                     if use_weight_optimization:
-                        self.Y[m-1] = feedback_multipliers[m]*np.dot(3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5), self.Y[m])
+                        self.Y[m-1] = np.dot(3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5), self.Y[m])
+                        self.c[m-1] = np.dot(self.Y[m-1], 3.465*W_sd*(np.random.uniform(size=(self.n[-1], 1)) - 0.5))
                     else:
-                        self.Y[m-1] = feedback_multipliers[m]*(np.random.uniform(size=(N, self.n[-1])) - 0.5)
+                        self.Y[m-1] = (np.random.uniform(size=(N, self.n[-1])) - 0.5)
+                        self.c[m-1] = (np.random.uniform(size=(N, 1)) - 0.5)
                 else:
                     if use_weight_optimization:
-                         self.Y[m-1] = feedback_multipliers[m]*(W_avg + 3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5))
+                         self.Y[m-1] = (W_avg + 3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5))
+                         self.c[m-1] = (W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5))
                     else:
-                        self.Y[m-1] = feedback_multipliers[m]*(np.random.uniform(size=(N, self.n[m])) - 0.5)
-
-            if use_sparse_coding:
-                self.H[m] = np.zeros((self.n[m], self.n[m]))
+                        self.Y[m-1] = (np.random.uniform(size=(N, self.n[m])) - 0.5)
+                        self.c[m-1] = (np.random.uniform(size=(self.n[m], 1)) - 0.5)
 
         if use_symmetric_weights == True:
             # enforce symmetric weights
@@ -290,7 +292,8 @@ class Network:
             print("Layer {0} -- {1} units.".format(m, self.n[m]))
             print("\tW_avg: {0:.6f},\tW_sd: {1:.6f},\n".format(np.mean(self.W[m]), np.std(self.W[m]))
                 + "\tb_avg: {0:.6f},\tb_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
-                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f}.".format(np.mean(self.Y[m]), np.std(self.Y[m])))
+                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f},\n".format(np.mean(self.Y[m]), np.std(self.Y[m]))
+                + "\tc_avg: {0:.6f},\tc_sd: {1:.6f}.".format(np.mean(self.c[m]), np.std(self.c[m])))
         print("--------------------------------")
 
     def make_weights_symmetric(self):
@@ -1386,6 +1389,7 @@ class Network:
             np.save(os.path.join(path, prefix + "f_weights_{}.npy".format(m)), self.W[m])
             np.save(os.path.join(path, prefix + "f_bias_{}.npy".format(m)), self.b[m])
             np.save(os.path.join(path, prefix + "b_weights_{}.npy".format(m)), self.Y[m])
+            np.save(os.path.join(path, prefix + "b_bias_{}.npy".format(m)), self.c[m])
 
     def load_weights(self, path, prefix=""):
         '''
@@ -1403,12 +1407,14 @@ class Network:
             self.W[m] = np.load(os.path.join(path, prefix + "f_weights_{}.npy".format(m)))
             self.b[m] = np.load(os.path.join(path, prefix + "f_bias_{}.npy".format(m)))
             self.Y[m] = np.load(os.path.join(path, prefix + "b_weights_{}.npy".format(m)))
+            self.c[m] = np.load(os.path.join(path, prefix + "b_bias_{}.npy".format(m)))
 
         for m in xrange(self.M-1, -1, -1):
             print("Layer {0} -- {1} units.".format(m, self.n[m]))
             print("\tW_avg: {0:.6f},\tW_sd: {1:.6f},\n".format(np.mean(self.W[m]), np.std(self.W[m]))
                 + "\tb_avg: {0:.6f},\tb_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
-                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f}.".format(np.mean(self.Y[m]), np.std(self.Y[m])))
+                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f},\n".format(np.mean(self.Y[m]), np.std(self.Y[m]))
+                + "\tc_avg: {0:.6f},\tc_sd: {1:.6f}.".format(np.mean(self.c[m]), np.std(self.c[m])))
         print("--------------------------------")
 
 # ---------------------------------------------------------------
@@ -1942,6 +1948,7 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
         params = json.loads(simulation_file.read())
 
     # set global parameters
+    global nonspiking_mode
     global n_full_test, n_quick_test
     global nonspiking_mode
     global use_rand_phase_lengths, use_rand_plateau_times, use_conductances, use_broadcast, use_spiking_feedback, use_spiking_feedforward, use_sparse_coding, use_unsupervised_target
@@ -2009,8 +2016,9 @@ def load_simulation(latest_epoch, folder_name, simulations_folder=default_simula
     n_training_examples     = params['n_training_examples']
 
     if nonspiking_mode:
-        print("*------------ Running in non-spiking mode. ------------*")
-        
+        print("* ------------ Running in non-spiking mode. ------------ *")
+
+        # set parameters for non-spiking mode
         use_rand_phase_lengths  = False
         use_rand_plateau_times  = False
         use_conductances        = False
