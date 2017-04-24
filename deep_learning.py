@@ -132,7 +132,7 @@ def sigma(x):
     return expit(x)
 
 def deriv_sigma(x):
-    return np.exp(x)/(1.0 + np.exp(x))**2
+    return expit(x)*(1.0 - expit(x))
 
 # --- kernel function --- #
 
