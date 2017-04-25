@@ -40,6 +40,7 @@ import shutil
 import json
 from scipy.special import expit
 import pdb
+import numexpr as ne
 
 if sys.version_info >= (3,):
     xrange = range
@@ -51,15 +52,15 @@ n_quick_test = 100   # number of examples to use for quick tests (every 1000 exa
 """                 Simulation parameters                     """
 # ---------------------------------------------------------------
 
-nonspiking_mode         = False # whether to run in non-spiking mode (real-valued outputs)
+nonspiking_mode         = True  # whether to run in non-spiking mode (real-valued outputs)
 
 use_rand_phase_lengths  = True  # use random phase lengths (chosen from Wald distribution)
 use_rand_plateau_times  = False # randomly sample the time of each neuron's apical plateau potential
-use_conductances        = True # use conductances between dendrites and soma
+use_conductances        = True  # use conductances between dendrites and soma
 use_broadcast           = True  # use broadcast (ie. feedback to all layers comes from output layer)
-use_spiking_feedback    = True # use spiking feedback
-use_spiking_feedforward = True # use spiking feedforward input
-use_sparse_coding       = False
+use_spiking_feedback    = True  # use spiking feedback
+use_spiking_feedforward = True  # use spiking feedforward input
+use_sparse_coding       = True  # use lateral inhibition connections with a sparse coding learning rule (Zylberberg et al., 2011)
 use_unsupervised_target = False
 
 use_symmetric_weights   = False # enforce symmetric weights
@@ -147,7 +148,7 @@ P_hidden = 20.0/lambda_max      # hidden layer error signal scaling factor
 P_final  = 20.0/(lambda_max**2) # final layer error signal scaling factor
 
 if use_sparse_coding:
-    sparse_coding_p = 0.001
+    sparse_coding_p = 0.01
 
 # ---------------------------------------------------------------
 """                     Functions                             """
@@ -850,6 +851,11 @@ class Network:
         # set learning rate instance variables
         self.f_etas = f_etas
         self.b_etas = b_etas
+
+        if h_etas != None:
+            if type(h_etas) in (float, int):
+                h_etas = (h_etas,)
+            self.h_etas = h_etas
 
         if save_simulation and self.latest_epoch < 0:
             # save initial weights
@@ -1566,7 +1572,7 @@ class hiddenLayer(Layer):
         self.net.Y[self.m] += -self.net.b_etas[self.m]*self.delta_Y
 
     def update_H(self):
-        self.net.H[self.m] += self.net.f_etas[self.m]*(np.outer(self.average_lambda_C_f, self.average_lambda_C_f) - sparse_coding_p**2)
+        self.net.H[self.m] += self.net.h_etas[self.m]*(np.dot(self.average_lambda_C_f, self.average_lambda_C_f.T) - sparse_coding_p**2)
         np.fill_diagonal(self.net.H[self.m], 0)
 
     def update_A(self, b_input):
