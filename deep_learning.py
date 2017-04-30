@@ -39,6 +39,7 @@ import time
 import shutil
 import json
 from scipy.special import expit
+import theano
 
 if sys.version_info >= (3,):
     xrange = range
@@ -226,6 +227,7 @@ class Network:
 
         # create dummy feedback weights for output layer (makes for loops easier)
         self.Y[self.M-1] = np.eye(self.n[self.M-1])
+        self.c[self.M-1] = np.ones(self.n[self.M-1])
 
         for m in xrange(self.M-1, -1, -1):
             # get number of units in the layer below
@@ -276,11 +278,16 @@ class Network:
                 self.Y[m] *= 5
 
         for m in xrange(self.M-1, -1, -1):
+            self.W[m] = theano.shared(self.W[m], "W_{}".format(m))
+            self.b[m] = theano.shared(self.b[m], "b_{}".format(m))
+            self.Y[m] = theano.shared(self.Y[m], "Y_{}".format(m))
+            self.c[m] = theano.shared(self.c[m], "c_{}".format(m))
+
             print("Layer {0} -- {1} units.".format(m, self.n[m]))
-            print("\tW_avg: {0:.6f},\tW_sd: {1:.6f},\n".format(np.mean(self.W[m]), np.std(self.W[m]))
-                + "\tb_avg: {0:.6f},\tb_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
-                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f},\n".format(np.mean(self.Y[m]), np.std(self.Y[m]))
-                + "\tc_avg: {0:.6f},\tc_sd: {1:.6f}.".format(np.mean(self.c[m]), np.std(self.c[m])))
+            print("\tW_avg: {0:.6f},\tW_sd: {1:.6f},\n".format(np.mean(self.W[m].eval()), np.std(self.W[m].eval()))
+                + "\tb_avg: {0:.6f},\tb_sd: {1:.6f},\n".format(np.mean(self.b[m].eval()), np.std(self.b[m].eval()))
+                + "\tY_avg: {0:.6f},\tY_sd: {1:.6f},\n".format(np.mean(self.Y[m].eval()), np.std(self.Y[m].eval()))
+                + "\tc_avg: {0:.6f},\tc_sd: {1:.6f}.".format(np.mean(self.c[m].eval()), np.std(self.c[m].eval())))
         print("--------------------------------")
 
     def make_weights_symmetric(self):
@@ -1442,8 +1449,8 @@ class hiddenLayer(Layer):
         self.lambda_C_hist = np.zeros((self.size, integration_time))
 
         self.E       = np.zeros((self.size, 1))
-        self.delta_W = np.zeros(self.net.W[self.m].shape)
-        self.delta_Y = np.zeros(self.net.Y[self.m].shape)
+        self.delta_W = np.zeros(self.net.W[self.m].eval().shape)
+        self.delta_Y = np.zeros(self.net.Y[self.m].eval().shape)
         self.delta_b = np.zeros((self.size, 1))
 
         self.average_C_f        = np.zeros((self.size, 1))
@@ -1520,10 +1527,10 @@ class hiddenLayer(Layer):
             self.delta_b_bp = self.E_bp
 
         self.delta_W        = np.dot(self.E, self.average_PSP_B_f.T)
-        self.net.W[self.m] += -self.net.f_etas[self.m]*P_hidden*self.delta_W
+        self.net.W[self.m].set_value(self.net.W[self.m].eval() - self.net.f_etas[self.m]*P_hidden*self.delta_W)
 
         self.delta_b        = self.E
-        self.net.b[self.m] += -self.net.f_etas[self.m]*P_hidden*self.delta_b
+        self.net.b[self.m].set_value(self.net.b[self.m].eval() - self.net.f_etas[self.m]*P_hidden*self.delta_b)
 
     def update_Y(self):
         '''
@@ -1550,7 +1557,7 @@ class hiddenLayer(Layer):
 
         self.PSP_A_hist[:, self.integration_counter % integration_time] = self.PSP_A[:, 0]
 
-        self.A = np.dot(self.net.Y[self.m], self.PSP_A)
+        self.A = np.dot(self.net.Y[self.m].eval(), self.PSP_A)
         self.A_hist[:, self.integration_counter % integration_time] = self.A[:, 0]
 
     def update_B(self, f_input):
@@ -1568,7 +1575,7 @@ class hiddenLayer(Layer):
 
         self.PSP_B_hist[:, self.integration_counter % integration_time] = self.PSP_B[:, 0]
 
-        self.B = np.dot(self.net.W[self.m], self.PSP_B) + self.net.b[self.m]
+        self.B = np.dot(self.net.W[self.m].eval(), self.PSP_B) + self.net.b[self.m].eval()
 
     def update_C(self):
         '''
@@ -1677,41 +1684,63 @@ NOTE: In the paper, we denote the output layer's somatic & dendritic potentials
       as U and V. Here, we use C & B purely in order to simplify the code.
 """
 class finalLayer(Layer):
-    def __init__(self, net, m, f_input_size):
+    def __init__(self, net, m, f_input):
         '''
         Initialize the final layer.
 
         Arguments:
             net (Network)      : The network that the layer belongs to.
             m (int)            : The layer number, ie. m = M - 1 where M is the total number of layers.
-            f_input_size (int) : The size of feedforward input. This is the same as the
-                                 the number of units in the previous layer.
+            f_input (int)      : Feedforward input.
         '''
 
         Layer.__init__(self, net, m)
 
-        self.f_input_size = f_input_size
+        self.f_input_size = f_input.shape[0]
 
-        self.B             = np.zeros((self.size, 1))
-        self.I             = np.zeros((self.size, 1))
-        self.C             = np.zeros((self.size, 1))
-        self.lambda_C      = np.zeros((self.size, 1))
-        self.S_hist        = np.zeros((self.size, mem), dtype=np.int8)
-        self.PSP_B_hist    = np.zeros((self.f_input_size, integration_time))
-        self.C_hist        = np.zeros((self.size, integration_time))
-        self.lambda_C_hist = np.zeros((self.size, integration_time))
+        self.kappas = theano.shared(kappas)
 
-        self.E       = np.zeros((self.size, 1))
-        self.delta_W = np.zeros(self.net.W[self.m].shape)
-        self.delta_b = np.zeros((self.size, 1))
+        self.I             = theano.tensor.fvector("I_{}".format(m))
+        self.C             = theano.tensor.fvector("C_{}".format(m))
+        self.lambda_C      = theano.tensor.fvector("lambda_C_{}".format(m))
+        self.S_hist        = theano.shared(np.zeros((self.size, mem), dtype=np.int8))
+        self.PSP_B_hist    = theano.shared(np.zeros((self.f_input_size, integration_time)))
+        self.C_hist        = theano.shared(np.zeros((self.size, integration_time)))
+        self.lambda_C_hist = theano.shared(np.zeros((self.size, integration_time)))
 
-        self.average_C_f        = np.zeros((self.size, 1))
-        self.average_C_t        = np.zeros((self.size, 1))
-        self.average_lambda_C_f = np.zeros((self.size, 1))
-        self.average_lambda_C_t = np.zeros((self.size, 1))
-        self.average_PSP_B_f    = np.zeros((self.f_input_size, 1))
+        self.E = theano.tensor.fvector("E_{}".format(m))
+
+        self.average_C_f        = theano.tensor.fvector("average_C_f_{}".format(m))
+        self.average_C_t        = theano.tensor.fvector("average_C_t_{}".format(m))
+        self.average_lambda_C_f = theano.tensor.fvector("average_lambda_C_f_{}".format(m))
+        self.average_lambda_C_t = theano.tensor.fvector("average_lambda_C_t_{}".format(m))
+        self.average_PSP_B_f    = theano.tensor.fvector("average_PSP_B_f_{}".format(m))
 
         self.integration_counter = 0
+
+        if use_spiking_feedforward:
+            self.PSP_B = f_input * self.kappas
+        else:
+            self.PSP_B = f_input
+
+        self.calc_PSP_B = theano.function([f_input], self.PSP_B)
+
+        self.B = self.net.W[self.m] * self.PSP_B + self.net.b[self.m]
+        self.calc_B = theano.function([self.PSP_B], self.B)
+
+        if use_conductances:
+            if phase == "forward":
+                self.C_dot = -g_L*self.C + g_D*(self.B - self.C)
+            elif phase == "target":
+                self.C_dot = -g_L*self.C + g_D*(self.B - self.C) + self.I
+            self.C += self.C_dot*dt
+        else:
+            if phase == "forward":
+                self.C = k_D*self.B
+            elif phase == "target":
+                self.C = self.k_D2*self.B + self.k_E*E_E + self.k_I*E_I
+
+        self.B_dot_f = theano.function([self.B_dot_x], self.B_dot)
 
     def create_integration_vars(self):
         self.PSP_B_hist    = np.zeros((self.f_input_size, integration_time))
@@ -1777,7 +1806,7 @@ class finalLayer(Layer):
 
         self.PSP_B_hist[:, self.integration_counter % integration_time] = self.PSP_B[:, 0]
 
-        self.B = np.dot(self.net.W[self.m], self.PSP_B) + self.net.b[self.m]
+        self.B = np.dot(self.net.W[self.m].eval(), self.PSP_B) + self.net.b[self.m].eval()
 
     def update_I(self, b_input=None):
         '''
