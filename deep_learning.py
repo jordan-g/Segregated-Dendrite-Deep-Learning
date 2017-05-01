@@ -43,7 +43,7 @@ from scipy.special import expit
 if sys.version_info >= (3,):
     xrange = range
 
-n_full_test  = 10000 # number of examples to use for full tests  (every epoch)
+n_full_test  = 100   # number of examples to use for full tests  (every epoch)
 n_quick_test = 100   # number of examples to use for quick tests (every 1000 examples)
 
 # ---------------------------------------------------------------
@@ -58,6 +58,7 @@ use_conductances        = True  # use conductances between dendrites and soma
 use_broadcast           = True  # use broadcast (ie. feedback to all layers comes from output layer)
 use_spiking_feedback    = True  # use spiking feedback
 use_spiking_feedforward = True  # use spiking feedforward input
+use_derivative_learning = True  # use alternate derivative-based learning rule
 
 use_symmetric_weights   = False # enforce symmetric weights
 noisy_symmetric_weights = False # add noise to symmetric weights
@@ -127,7 +128,7 @@ tau_L = 10.0 # leak time constant
 
 # conductance parameters
 g_B = 0.6                                   # basal conductance
-g_A = 0.05 if use_apical_conductance else 0 # apical conductance
+g_A = 0.2 if use_apical_conductance else 0  # apical conductance
 g_L = 1.0/tau_L                             # leak conductance
 g_D = g_B                                   # dendritic conductance in output layer
 
@@ -241,28 +242,34 @@ class Network:
                 W_sm  = (V_sm + (nu**2)*(N - N**2)*(W_avg**2)*(V_avg**2) - 2*N*nu*b_avg*V_avg*W_avg - (b_avg**2))/(N*(nu**2)*V_sm)
                 W_sd  = np.sqrt(W_sm - W_avg**2)
             
-                self.W[m] = W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], N)) - 0.5)
-                self.b[m] = b_avg + 3.465*b_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
+                self.W[m] = W_avg + 3.465*W_sd*2*(np.random.uniform(size=(self.n[m], N)) - 0.5)
+                self.b[m] = b_avg + 3.465*b_sd*2*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
             else:
-                self.W[m] = 0.1*(np.random.uniform(size=(self.n[m], N)) - 0.5)
-                self.b[m] = 1.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
+                self.W[m] = 0.2*(np.random.uniform(size=(self.n[m], N)) - 0.5)
+                self.b[m] = 2.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
 
             # generate feedback weights & biases; in the paper, we do not use feedback biases
             if m != 0:
                 if use_broadcast:
                     if use_weight_optimization:
-                        self.Y[m-1] = np.dot(3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5), self.Y[m])
-                        self.c[m-1] = np.dot(self.Y[m-1], 3.465*W_sd*(np.random.uniform(size=(self.n[-1], 1)) - 0.5))
-                    else:
-                        self.Y[m-1] = (np.random.uniform(size=(N, self.n[-1])) - 0.5)
+                        self.Y[m-1] = 5 *(np.random.uniform(size=(N, self.n[-1])) - 0.5)
                         self.c[m-1] = (np.random.uniform(size=(N, 1)) - 0.5)
+
+                        # self.Y[m-1] = (W_avg + 3.465*W_sd*2*(np.random.uniform(size=(N, self.n[-1])) - 0.5))
+                        # self.c[m-1] = (b_avg + 3.465*b_sd*2*(np.random.uniform(size=(N, 1)) - 0.5))
+
+                        # self.Y[m-1] = np.dot(W_avg + 3.465*W_sd*2*(np.random.uniform(size=(N, self.n[m])) - 0.5), self.Y[m])
+                        # self.c[m-1] = np.dot(self.Y[m-1], b_avg + 3.465*b_sd*2*(np.random.uniform(size=(self.n[-1], 1)) - 0.5))
+                    else:
+                        self.Y[m-1] = 5.0*(np.random.uniform(size=(N, self.n[-1])) - 0.5)
+                        self.c[m-1] = 5.0*(np.random.uniform(size=(N, 1)) - 0.5)
                 else:
                     if use_weight_optimization:
-                         self.Y[m-1] = (W_avg + 3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5))
-                         self.c[m-1] = (W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5))
+                         self.Y[m-1] = 5.0*(W_avg + 3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5))
+                         self.c[m-1] = 5.0*(W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5))
                     else:
-                        self.Y[m-1] = (np.random.uniform(size=(N, self.n[m])) - 0.5)
-                        self.c[m-1] = (np.random.uniform(size=(self.n[m], 1)) - 0.5)
+                        self.Y[m-1] = 5.0*(np.random.uniform(size=(N, self.n[m])) - 0.5)
+                        self.c[m-1] = 5.0*(np.random.uniform(size=(self.n[m], 1)) - 0.5)
 
         if use_symmetric_weights == True:
             # enforce symmetric weights
@@ -275,13 +282,17 @@ class Network:
                 self.Y[m].ravel()[self.Y_dropout_indices[m]] = 0
                 self.Y[m] *= 5
 
+        # print initial weight statistics
+        self.print_weight_stats()
+        print("--------------------------------")
+
+    def print_weight_stats(self):
         for m in xrange(self.M-1, -1, -1):
             print("Layer {0} -- {1} units.".format(m, self.n[m]))
             print("\tW_avg: {0:.6f},\tW_sd: {1:.6f},\n".format(np.mean(self.W[m]), np.std(self.W[m]))
                 + "\tb_avg: {0:.6f},\tb_sd: {1:.6f},\n".format(np.mean(self.b[m]), np.std(self.b[m]))
                 + "\tY_avg: {0:.6f},\tY_sd: {1:.6f},\n".format(np.mean(self.Y[m]), np.std(self.Y[m]))
                 + "\tc_avg: {0:.6f},\tc_sd: {1:.6f}.".format(np.mean(self.c[m]), np.std(self.c[m])))
-        print("--------------------------------")
 
     def make_weights_symmetric(self):
         '''
@@ -548,11 +559,11 @@ class Network:
             # append voltages to files
             for m in xrange(self.M):
                 if m != self.M-1:
-                    with open(os.path.join(self.simulation_path, 'A_hist_{}.csv'.format(m)), 'a') as A_hist_file:
+                    with open(os.path.join(self.simulation_path, 'A_hist_{}.csv'.format(m)), 'ab') as A_hist_file:
                         np.savetxt(A_hist_file, self.A_hists[m])
-                with open(os.path.join(self.simulation_path, 'B_hist_{}.csv'.format(m)), 'a') as B_hist_file:
+                with open(os.path.join(self.simulation_path, 'B_hist_{}.csv'.format(m)), 'ab') as B_hist_file:
                     np.savetxt(B_hist_file, self.B_hists[m])
-                with open(os.path.join(self.simulation_path, 'C_hist_{}.csv'.format(m)), 'a') as C_hist_file:
+                with open(os.path.join(self.simulation_path, 'C_hist_{}.csv'.format(m)), 'ab') as C_hist_file:
                     np.savetxt(C_hist_file, self.C_hists[m])
 
     def t_phase(self, x, t, training_num):
@@ -571,6 +582,8 @@ class Network:
             self.B_hists = [ np.zeros((l_t_phase, self.l[m].size)) for m in xrange(self.M)]
             self.C_hists = [ np.zeros((l_t_phase, self.l[m].size)) for m in xrange(self.M)]
 
+        self.A_dots = np.zeros((self.M-1, l_t_phase))
+
         for time in xrange(l_t_phase):
             # update input history
             self.x_hist = np.concatenate([self.x_hist[:, 1:], np.random.poisson(x)], axis=-1)
@@ -588,6 +601,15 @@ class Network:
 
                     self.l[m].plateau_t(plateau_indices=plateau_indices)
 
+            if use_derivative_learning:
+                for m in xrange(self.M):
+                    if time < 10:
+                        # update weights
+                        self.l[m].update_W()
+
+                    if m != self.M-1:
+                        self.A_dots[m, time] = self.l[m].A_dot[0]
+
             if record_voltages:
                 # record voltages for this timestep
                 for m in xrange(self.M):
@@ -604,6 +626,10 @@ class Network:
                 self.l[m].plateau_t(plateau_indices=plateau_indices)
 
         for m in xrange(self.M-1, -1, -1):
+            # if m != self.M-1:
+            #     print("A dot {}: {}".format(m, np.sum(self.A_dots[m])))
+            #     print("A diff {}: {}".format(m, self.l[m].average_A_t[0] - self.l[m].average_A_f[0]))
+
             # calculate averages
             self.l[m].calc_averages(phase="target")
 
@@ -611,8 +637,9 @@ class Network:
                 # update feedback weights
                 self.l[m].update_Y()
 
-            # update weights
-            self.l[m].update_W()
+            if not use_derivative_learning:
+                # update weights
+                self.l[m].update_W()
 
         if record_loss:
             self.loss = ((self.l[-1].average_lambda_C_t - lambda_max*sigma(self.l[-1].average_C_f)) ** 2).mean()
@@ -649,11 +676,11 @@ class Network:
             # append voltages to files
             for m in xrange(self.M):
                 if m != self.M-1:
-                    with open(os.path.join(self.simulation_path, 'A_hist_{}.csv'.format(m)), 'a') as A_hist_file:
+                    with open(os.path.join(self.simulation_path, 'A_hist_{}.csv'.format(m)), 'ab') as A_hist_file:
                         np.savetxt(A_hist_file, self.A_hists[m])
-                with open(os.path.join(self.simulation_path, 'B_hist_{}.csv'.format(m)), 'a') as B_hist_file:
+                with open(os.path.join(self.simulation_path, 'B_hist_{}.csv'.format(m)), 'ab') as B_hist_file:
                     np.savetxt(B_hist_file, self.B_hists[m])
-                with open(os.path.join(self.simulation_path, 'C_hist_{}.csv'.format(m)), 'a') as C_hist_file:
+                with open(os.path.join(self.simulation_path, 'C_hist_{}.csv'.format(m)), 'ab') as C_hist_file:
                     np.savetxt(C_hist_file, self.C_hists[m])
 
     def train(self, f_etas, b_etas, n_epochs, n_training_examples, save_simulation, simulations_folder=default_simulations_folder, folder_name="", overwrite=False, simulation_notes=None, latest_epoch=-1):
@@ -1507,8 +1534,18 @@ class hiddenLayer(Layer):
         Update feedforward weights.
         '''
 
+        if self.m == 0:
+            mult = 10
+        else:
+            mult = 10
+
+        # print("Layer {} updating weights.".format(self.m))
+
         if not use_backprop:
-            self.E = (self.alpha_t - self.alpha_f)*-k_B*lambda_max*deriv_sigma(self.average_C_f)
+            if use_derivative_learning:
+                self.E = mult*(self.A_dot)*-k_B*lambda_max*deriv_sigma(self.C)
+            else:
+                self.E = (self.alpha_t - self.alpha_f)*-k_B*lambda_max*deriv_sigma(self.average_C_f)
 
             if record_backprop_angle and not use_backprop and calc_E_bp:
                 self.E_bp = (np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*lambda_max*deriv_sigma(self.average_C_f))
@@ -1519,7 +1556,10 @@ class hiddenLayer(Layer):
         if record_backprop_angle and (not use_backprop) and calc_E_bp:
             self.delta_b_bp = self.E_bp
 
-        self.delta_W        = np.dot(self.E, self.average_PSP_B_f.T)
+        if use_derivative_learning:
+            self.delta_W        = np.dot(self.E, self.PSP_B.T)
+        else:
+            self.delta_W        = np.dot(self.E, self.average_PSP_B_f.T)
         self.net.W[self.m] += -self.net.f_etas[self.m]*P_hidden*self.delta_W
 
         self.delta_b        = self.E
@@ -1530,7 +1570,7 @@ class hiddenLayer(Layer):
         Update feedback weights.
         '''
 
-        E_inv = (lambda_max*sigma(self.average_C_f) - self.alpha_f)*-deriv_sigma(self.average_A_f)
+        E_inv = (sigma(self.average_C_f) - self.alpha_f)*-deriv_sigma(self.average_A_f)
 
         self.delta_Y        = np.dot(E_inv, self.average_PSP_A_f.T)
         self.net.Y[self.m] += -self.net.b_etas[self.m]*self.delta_Y
@@ -1550,7 +1590,15 @@ class hiddenLayer(Layer):
 
         self.PSP_A_hist[:, self.integration_counter % integration_time] = self.PSP_A[:, 0]
 
-        self.A = np.dot(self.net.Y[self.m], self.PSP_A)
+        if use_derivative_learning:
+            new_A = np.dot(self.net.Y[self.m], self.PSP_A)
+
+            self.A_dot = new_A - self.A
+
+            self.A = new_A[:]
+        else:
+            self.A = np.dot(self.net.Y[self.m], self.PSP_A)
+
         self.A_hist[:, self.integration_counter % integration_time] = self.A[:, 0]
 
     def update_B(self, f_input):
@@ -1751,12 +1799,18 @@ class finalLayer(Layer):
         Update feedforward weights.
         '''
 
-        self.E = (self.average_lambda_C_t - lambda_max*sigma(self.average_C_f))*-k_D*lambda_max*deriv_sigma(self.average_C_f)
+        if use_derivative_learning:
+            self.E = (self.lambda_C_dot)*-k_D*lambda_max*deriv_sigma(self.C)
+        else:
+            self.E = (self.average_lambda_C_t - lambda_max*sigma(self.average_C_f))*-k_D*lambda_max*deriv_sigma(self.average_C_f)
 
         if use_backprop or (record_backprop_angle and calc_E_bp):
             self.E_bp = (self.average_lambda_C_t - lambda_max*sigma(self.average_C_f))*-k_D*lambda_max*deriv_sigma(self.average_C_f)
 
-        self.delta_W        = np.dot(self.E, self.average_PSP_B_f.T)
+        if use_derivative_learning:
+            self.delta_W        = np.dot(self.E, self.PSP_B.T)
+        else:
+            self.delta_W        = np.dot(self.E, self.average_PSP_B_f.T)
         self.net.W[self.m] += -self.net.f_etas[self.m]*P_final*self.delta_W
 
         self.delta_b        = self.E
@@ -1794,7 +1848,7 @@ class finalLayer(Layer):
             g_E = b_input
             g_I = -g_E + 1
             if use_conductances:
-                self.I = g_E*(E_E - self.C) + g_I*(E_I - self.C)
+                self.I = 0.5*g_E*(E_E - self.C) + 0.5*g_I*(E_I - self.C)
             else:
                 self.k_D2 = g_D/(g_L + g_D + g_E + g_I)
                 self.k_E  = g_E/(g_L + g_D + g_E + g_I)
@@ -1822,7 +1876,15 @@ class finalLayer(Layer):
 
         self.C_hist[:, self.integration_counter % integration_time] = self.C[:, 0]
 
-        self.lambda_C = lambda_max*sigma(self.C)
+        if use_derivative_learning:
+            lambda_C_new = lambda_max*sigma(self.C)
+
+            self.lambda_C_dot = lambda_C_new - self.lambda_C
+
+            self.lambda_C = lambda_C_new[:]
+        else:
+            self.lambda_C = lambda_max*sigma(self.C)
+
         self.lambda_C_hist[:, self.integration_counter % integration_time] = self.lambda_C[:, 0]
 
     def out_f(self, f_input, b_input):
