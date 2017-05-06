@@ -164,7 +164,7 @@ def kappa(x):
 def get_kappas(n=mem):
     return np.array([kappa(i+1) for i in xrange(n)])
 
-kappas = np.flipud(get_kappas(mem))[:, np.newaxis] # initialize kappas array
+kappas = theano.shared(np.flipud(get_kappas(mem))[:, np.newaxis]) # initialize kappas array
 
 # ---------------------------------------------------------------
 """                     Network class                         """
@@ -1412,13 +1412,6 @@ class Layer:
         self.m    = m
         self.size = self.net.n[m]
 
-    def spike(self):
-        '''
-        Generate Poisson spikes based on the firing rates of the neurons.
-        '''
-
-        self.S_hist = np.concatenate([self.S_hist[:, 1:], np.random.poisson(self.lambda_C)], axis=-1)
-
 class hiddenLayer(Layer):
     def __init__(self, net, m, f_input_size, b_input_size):
         '''
@@ -1684,7 +1677,7 @@ NOTE: In the paper, we denote the output layer's somatic & dendritic potentials
       as U and V. Here, we use C & B purely in order to simplify the code.
 """
 class finalLayer(Layer):
-    def __init__(self, net, m, f_input):
+    def __init__(self, net, m, f_input, b_input):
         '''
         Initialize the final layer.
 
@@ -1698,11 +1691,40 @@ class finalLayer(Layer):
 
         self.f_input_size = f_input.shape[0]
 
-        self.kappas = theano.shared(kappas)
+        # set PSP_B
+        if use_spiking_feedforward:
+            self.PSP_B = f_input * kappas
+        else:
+            self.PSP_B = f_input
 
-        self.I             = theano.tensor.fvector("I_{}".format(m))
-        self.C             = theano.tensor.fvector("C_{}".format(m))
-        self.lambda_C      = theano.tensor.fvector("lambda_C_{}".format(m))
+        # set B
+        self.B = self.net.W[self.m] * self.PSP_B + self.net.b[self.m]
+
+        # set g_E and g_I
+        g_E = b_input
+        g_I = -g_E + 1
+
+        # set I
+        if use_conductances:
+            self.I = g_E*(E_E - self.C) + g_I*(E_I - self.C)
+        else:
+            self.k_D2 = g_D/(g_L + g_D + g_E + g_I)
+            self.k_E  = g_E/(g_L + g_D + g_E + g_I)
+            self.k_I  = g_I/(g_L + g_D + g_E + g_I)
+
+        # set C
+        if use_conductances:
+            self.C_dot = theano.cond(self.net.phase == "forward", lambda: -g_L*self.C + g_D*(self.B - self.C), lambda: -g_L*self.C + g_D*(self.B - self.C) + self.I)
+            self.C = self.C self.C_dot*dt
+        else:
+            self.C = theano.cond(self.net.phase == "forward", lambda: k_D*self.B, self.k_D2*self.B + self.k_E*E_E + self.k_I*E_I)
+
+        # set lambda_C
+        self.lambda_C = lambda_max*theano.tensor.nnet.nnet.sigmoid(self.C)
+
+        # set S
+        self.S = theano.poisson(self.lambda_C.size(), self.lambda_C)
+
         self.S_hist        = theano.shared(np.zeros((self.size, mem), dtype=np.int8))
         self.PSP_B_hist    = theano.shared(np.zeros((self.f_input_size, integration_time)))
         self.C_hist        = theano.shared(np.zeros((self.size, integration_time)))
@@ -1718,34 +1740,10 @@ class finalLayer(Layer):
 
         self.integration_counter = 0
 
-        if use_spiking_feedforward:
-            self.PSP_B = f_input * self.kappas
-        else:
-            self.PSP_B = f_input
-
-        self.calc_PSP_B = theano.function([f_input], self.PSP_B)
-
-        self.B = self.net.W[self.m] * self.PSP_B + self.net.b[self.m]
-        self.calc_B = theano.function([self.PSP_B], self.B)
-
-        if use_conductances:
-            if phase == "forward":
-                self.C_dot = -g_L*self.C + g_D*(self.B - self.C)
-            elif phase == "target":
-                self.C_dot = -g_L*self.C + g_D*(self.B - self.C) + self.I
-            self.C += self.C_dot*dt
-        else:
-            if phase == "forward":
-                self.C = k_D*self.B
-            elif phase == "target":
-                self.C = self.k_D2*self.B + self.k_E*E_E + self.k_I*E_I
-
-        self.B_dot_f = theano.function([self.B_dot_x], self.B_dot)
-
     def create_integration_vars(self):
-        self.PSP_B_hist    = np.zeros((self.f_input_size, integration_time))
-        self.C_hist        = np.zeros((self.size, integration_time))
-        self.lambda_C_hist = np.zeros((self.size, integration_time))
+        self.PSP_B_hist    = theano.shared(np.zeros((self.f_input_size, integration_time)))
+        self.C_hist        = theano.shared(np.zeros((self.size, integration_time)))
+        self.lambda_C_hist = theano.shared(np.zeros((self.size, integration_time)))
 
         self.integration_counter = 0
 
@@ -1791,68 +1789,21 @@ class finalLayer(Layer):
         self.delta_b        = self.E
         self.net.b[self.m] += -self.net.f_etas[self.m]*P_final*self.delta_b
 
-    def update_B(self, f_input):
+    def update_hist(self):
         '''
         Update basal potentials.
 
         Arguments:
             f_input (ndarray) : Feedforward input.
         '''
+        theano.tensor.roll(self.PSP_B_hist, axis=-1)
+        self.PSP_B_hist = theano.tensor.set_subtensor(self.PSP_B_hist[:, -1], self.PSP_B)
 
-        if use_spiking_feedforward:
-            self.PSP_B = np.dot(f_input, kappas)
-        else:
-            self.PSP_B = f_input
+        theano.tensor.roll(self.C_hist, axis=-1)
+        self.C_hist = theano.tensor.set_subtensor(self.C_hist[:, -1], self.C)
 
-        self.PSP_B_hist[:, self.integration_counter % integration_time] = self.PSP_B[:, 0]
-
-        self.B = np.dot(self.net.W[self.m].eval(), self.PSP_B) + self.net.b[self.m].eval()
-
-    def update_I(self, b_input=None):
-        '''
-        Update injected perisomatic currents.
-
-        Arguments:
-            b_input (ndarray) : Target input, eg. if the target label is 8,
-                                b_input = np.array([0, 0, 0, 0, 0, 0, 0, 0, 1, 0]).
-        '''
-
-        if b_input is None:
-            self.I *= 0
-        else:
-            g_E = b_input
-            g_I = -g_E + 1
-            if use_conductances:
-                self.I = g_E*(E_E - self.C) + g_I*(E_I - self.C)
-            else:
-                self.k_D2 = g_D/(g_L + g_D + g_E + g_I)
-                self.k_E  = g_E/(g_L + g_D + g_E + g_I)
-                self.k_I  = g_I/(g_L + g_D + g_E + g_I)
-
-    def update_C(self, phase):
-        '''
-        Update somatic potentials & calculate firing rates.
-
-        Arguments:
-            phase (string) : Current phase of the network, "forward" or "target".
-        '''
-
-        if use_conductances:
-            if phase == "forward":
-                self.C_dot = -g_L*self.C + g_D*(self.B - self.C)
-            elif phase == "target":
-                self.C_dot = -g_L*self.C + g_D*(self.B - self.C) + self.I
-            self.C += self.C_dot*dt
-        else:
-            if phase == "forward":
-                self.C = k_D*self.B
-            elif phase == "target":
-                self.C = self.k_D2*self.B + self.k_E*E_E + self.k_I*E_I
-
-        self.C_hist[:, self.integration_counter % integration_time] = self.C[:, 0]
-
-        self.lambda_C = lambda_max*sigma(self.C)
-        self.lambda_C_hist[:, self.integration_counter % integration_time] = self.lambda_C[:, 0]
+        theano.tensor.roll(self.lambda_C_hist, axis=-1)
+        self.lambda_C_hist = theano.tensor.set_subtensor(self.lambda_C_hist[:, -1], self.lambda_C)
 
     def out_f(self, f_input, b_input):
         '''
@@ -1862,11 +1813,6 @@ class finalLayer(Layer):
             f_input (ndarray)    : Feedforward input.
             b_input (ndarray)    : Target input. b_input = None during this phase.
         '''
-
-        self.update_B(f_input)
-        self.update_I(b_input)
-        self.update_C(phase="forward")
-        self.spike()
 
         self.integration_counter = (self.integration_counter + 1) % integration_time
 
@@ -1878,11 +1824,6 @@ class finalLayer(Layer):
             f_input (ndarray)    : Feedforward input.
             b_input (ndarray)    : Target input.
         '''
-
-        self.update_B(f_input)
-        self.update_I(b_input)
-        self.update_C(phase="target")
-        self.spike()
 
         self.integration_counter = (self.integration_counter + 1) % integration_time
 
@@ -1896,12 +1837,12 @@ class finalLayer(Layer):
         '''
 
         if phase == "forward":
-            self.average_C_f        = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
-            self.average_lambda_C_f = np.mean(self.lambda_C_hist, axis=-1)[:, np.newaxis]
-            self.average_PSP_B_f    = np.mean(self.PSP_B_hist, axis=-1)[:, np.newaxis]
+            self.average_C_f        = theano.tensor.mean(self.C_hist, axis=-1)
+            self.average_lambda_C_f = theano.tensor.mean(self.lambda_C_hist, axis=-1)
+            self.average_PSP_B_f    = theano.tensor.mean(self.PSP_B_hist, axis=-1)
         elif phase == "target":
-            self.average_C_t        = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
-            self.average_lambda_C_t = np.mean(self.lambda_C_hist, axis=-1)[:, np.newaxis]
+            self.average_C_t        = theano.tensor.mean(self.C_hist, axis=-1)
+            self.average_lambda_C_t = theano.tensor.mean(self.lambda_C_hist, axis=-1)
 
 # ---------------------------------------------------------------
 """                     Helper functions                      """
