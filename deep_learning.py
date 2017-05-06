@@ -259,10 +259,10 @@ class Network:
                 else:
                     if use_weight_optimization:
                          self.Y[m-1] = (W_avg + 3.465*W_sd*(np.random.uniform(size=(N, self.n[m])) - 0.5))
-                         self.c[m-1] = (W_avg + 3.465*W_sd*(np.random.uniform(size=(self.n[m], 1)) - 0.5))
+                         self.c[m-1] = (W_avg + 3.465*W_sd*(np.random.uniform(size=(N, 1)) - 0.5))
                     else:
                         self.Y[m-1] = (np.random.uniform(size=(N, self.n[m])) - 0.5)
-                        self.c[m-1] = (np.random.uniform(size=(self.n[m], 1)) - 0.5)
+                        self.c[m-1] = (np.random.uniform(size=(N, 1)) - 0.5)
 
         if use_symmetric_weights == True:
             # enforce symmetric weights
