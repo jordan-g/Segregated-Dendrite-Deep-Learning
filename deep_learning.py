@@ -541,8 +541,8 @@ class Network:
                 self.J_betas = self.J_betas[1:]
                 self.J_gammas = self.J_gammas[1:]
 
-            self.J_betas.append(np.multiply(deriv_phi(self.l[-1].average_C_f), k_D*self.W[-1]))
-            self.J_gammas.append(np.multiply(deriv_alpha(np.dot(self.Y[-2], phi(self.l[-1].average_C_f))), self.Y[-2]))
+            self.J_betas.append(np.multiply(lambda_max*deriv_sigma(self.l[-1].average_C_f), k_D*self.W[-1]))
+            self.J_gammas.append(np.multiply(deriv_sigma(np.dot(self.Y[-2], lambda_max*sigma(self.l[-1].average_C_f))), self.Y[-2]))
 
         if record_voltages and training:
             # append voltages to files
@@ -1535,6 +1535,9 @@ class hiddenLayer(Layer):
         self.delta_Y        = np.dot(E_inv, self.average_PSP_A_f.T)
         self.net.Y[self.m] += -self.net.b_etas[self.m]*self.delta_Y
 
+        self.delta_c        = E_inv
+        self.net.c[self.m] += -self.net.b_etas[self.m]*self.delta_c
+
     def update_A(self, b_input):
         '''
         Update apical potentials.
@@ -1550,7 +1553,7 @@ class hiddenLayer(Layer):
 
         self.PSP_A_hist[:, self.integration_counter % integration_time] = self.PSP_A[:, 0]
 
-        self.A = np.dot(self.net.Y[self.m], self.PSP_A)
+        self.A = np.dot(self.net.Y[self.m], self.PSP_A) + self.net.c[self.m]
         self.A_hist[:, self.integration_counter % integration_time] = self.A[:, 0]
 
     def update_B(self, f_input):
