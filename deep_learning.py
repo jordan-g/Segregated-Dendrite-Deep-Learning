@@ -50,7 +50,7 @@ n_quick_test = 100   # number of examples to use for quick tests (every 1000 exa
 """                 Simulation parameters                     """
 # ---------------------------------------------------------------
 
-nonspiking_mode         = False # whether to run in non-spiking mode (real-valued outputs)
+nonspiking_mode         = True  # whether to run in non-spiking mode (real-valued outputs)
 
 use_rand_phase_lengths  = True  # use random phase lengths (chosen from Wald distribution)
 use_rand_plateau_times  = False # randomly sample the time of each neuron's apical plateau potential
@@ -68,7 +68,7 @@ use_backprop            = False # use error backpropagation
 use_apical_conductance  = False # use attenuated conductance from apical dendrite to soma
 use_weight_optimization = True  # attempt to optimize initial weights
 use_feedback_bias       = False # use biases in feedback paths
-initial_test            = True  # whether to do an initial test on the test set prior to training
+initial_test            = False # whether to do an initial test on the test set prior to training
 
 record_backprop_angle   = False # record angle b/w hidden layer error signals and backprop-generated error signals
 record_loss             = True  # record final layer loss during training
@@ -1285,8 +1285,8 @@ class Network:
                     print("T: {0:.3f}s.\n".format(time_elapsed))
                     start_time = None
 
-                # update latest epoch counter
-                self.current_epoch += 1
+            # update latest epoch counter
+            self.current_epoch += 1
 
         # record end time of training
         if save_simulation:
