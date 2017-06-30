@@ -39,6 +39,15 @@ import time
 import shutil
 import json
 from scipy.special import expit
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
+import torch.utils.data as data_utils
+from torchvision import datasets, transforms
+from torch.autograd import Variable
+
+dtype = torch.FloatTensor
 
 if sys.version_info >= (3,):
     xrange = range
@@ -50,7 +59,7 @@ n_quick_test = 100   # number of examples to use for quick tests (every 1000 exa
 """                 Simulation parameters                     """
 # ---------------------------------------------------------------
 
-nonspiking_mode         = True  # whether to run in non-spiking mode (real-valued outputs)
+nonspiking_mode         = False  # whether to run in non-spiking mode (real-valued outputs)
 
 use_rand_phase_lengths  = True  # use random phase lengths (chosen from Wald distribution)
 use_rand_plateau_times  = False # randomly sample the time of each neuron's apical plateau potential
@@ -71,9 +80,9 @@ use_feedback_bias       = False # use biases in feedback paths
 initial_test            = False # whether to do an initial test on the test set prior to training
 
 record_backprop_angle   = False # record angle b/w hidden layer error signals and backprop-generated error signals
-record_loss             = True  # record final layer loss during training
-record_training_error   = True  # record training error during training
-record_training_labels  = True  # record labels of images that were shown during training
+record_loss             = False # record final layer loss during training
+record_training_error   = False # record training error during training
+record_training_labels  = False # record labels of images that were shown during training
 record_phase_times      = False # record phase transition times across training
 record_plateau_times    = False # record plateau potential times for each neuron across training
 record_voltages         = False # record voltages of neurons during training (huge arrays for long simulations!)
@@ -163,9 +172,24 @@ def kappa(x):
     return (np.exp(-x/tau_L) - np.exp(-x/tau_s))/(tau_L - tau_s)
 
 def get_kappas(n=mem):
-    return np.array([kappa(i+1) for i in xrange(n)])
+    return np.array([kappa(i+1) for i in xrange(n-1, -1, -1)])
 
-kappas = np.flipud(get_kappas(mem))[:, np.newaxis] # initialize kappas array
+kappas = get_kappas(mem)[:, np.newaxis] # initialize kappas array
+
+# print(kappas)
+kappas = torch.Tensor(kappas)
+
+train_loader = torch.utils.data.DataLoader(
+    datasets.MNIST('../data', train=True, download=True,
+                   transform=transforms.Compose([
+                       transforms.ToTensor()
+                   ])),
+    batch_size=1, shuffle=True)
+test_loader = torch.utils.data.DataLoader(
+    datasets.MNIST('../data', train=False, transform=transforms.Compose([
+                       transforms.ToTensor()
+                   ])),
+    batch_size=1, shuffle=True)
 
 # ---------------------------------------------------------------
 """                     Network class                         """
@@ -195,7 +219,9 @@ class Network:
         self.n_out = self.n[-1]            # output size
 
         # initialize input spike history
-        self.x_hist = np.zeros((self.n_in, mem))
+        self.x_hist = torch.Tensor(np.zeros((self.n_in, mem)).astype(np.float))
+
+        print(self.x_hist.size())
 
         self.current_epoch = None # current epoch of simulation
 
@@ -286,6 +312,14 @@ class Network:
                 self.Y[m].ravel()[self.Y_dropout_indices[m]] = 0
                 self.Y[m] *= 5
 
+        for m in xrange(self.M):
+            self.W[m] = torch.Tensor(self.W[m])
+            self.b[m] = torch.Tensor(self.b[m])
+            if m < self.M-1:
+                self.Y[m] = torch.Tensor(self.Y[m])
+                if use_feedback_bias:
+                    self.c[m] = torch.Tensor(self.c[m])
+
         # print initial weights info
         self.print_weights()
 
@@ -296,12 +330,12 @@ class Network:
         print("--------------------------------")
         for m in xrange(self.M-1, -1, -1):
             print("Layer {0} -- {1} units.".format(m, self.n[m]))
-            print("\tW_avg: {0:.6f},\tW_sd: {1:.6f}.".format(np.mean(self.W[m]), np.std(self.W[m])))
-            print("\tb_avg: {0:.6f},\tb_sd: {1:.6f}.".format(np.mean(self.b[m]), np.std(self.b[m])))
+            print("\tW_avg: {0:.6f},\tW_sd: {1:.6f}.".format(torch.mean(self.W[m]), self.W[m].std()))
+            print("\tb_avg: {0:.6f},\tb_sd: {1:.6f}.".format(torch.mean(self.b[m]), self.b[m].std()))
             if m != self.M-1:
-                print("\tY_avg: {0:.6f},\tY_sd: {1:.6f}.".format(np.mean(self.Y[m]), np.std(self.Y[m])))
+                print("\tY_avg: {0:.6f},\tY_sd: {1:.6f}.".format(torch.mean(self.Y[m]), self.Y[m].std()))
                 if use_feedback_bias:
-                    print("\tc_avg: {0:.6f},\tc_sd: {1:.6f}.".format(np.mean(self.c[m]), np.std(self.c[m])))
+                    print("\tc_avg: {0:.6f},\tc_sd: {1:.6f}.".format(torch.mean(self.c[m]), self.c[m].std()))
 
     def make_weights_symmetric(self):
         '''
@@ -524,7 +558,12 @@ class Network:
 
         for time in xrange(l_f_phase):
             # update input spike history
-            self.x_hist = np.concatenate([self.x_hist[:, 1:], np.random.poisson(x)], axis=-1)
+            # print(self.x_hist[:, 1:])
+            # print(torch.Tensor(np.random.poisson(x.numpy()).astype(np.float)))
+            if mem > 1:
+                self.x_hist = torch.cat([self.x_hist[:, 1:], torch.Tensor(np.random.poisson(x.numpy()).astype(np.float))], 1)
+            else:
+                self.x_hist[:, 0] = torch.Tensor(np.random.poisson(x.numpy()))
 
             # do a forward pass
             self.out_f(training=training)
@@ -532,7 +571,7 @@ class Network:
             if use_rand_plateau_times and training:
                 # calculate plateau potentials for hidden layer neurons
                 for m in xrange(self.M-2, -1, -1):
-                    plateau_indices = np.nonzero(time == self.plateau_times_f[m][training_num])
+                    plateau_indices = torch.Tensor(np.nonzero(time == self.plateau_times_f[m][training_num]))
 
                     self.l[m].plateau_f(plateau_indices=plateau_indices)
 
@@ -546,7 +585,7 @@ class Network:
 
         if (not use_rand_plateau_times) or (not training):
             for m in xrange(self.M-2, -1, -1):
-                plateau_indices = np.arange(self.n[m])
+                plateau_indices = torch.LongTensor(np.arange(self.n[m]))
 
                 # calculate plateau potentials for hidden layer neurons
                 self.l[m].plateau_f(plateau_indices=plateau_indices)
@@ -593,7 +632,10 @@ class Network:
 
         for time in xrange(l_t_phase):
             # update input history
-            self.x_hist = np.concatenate([self.x_hist[:, 1:], np.random.poisson(x)], axis=-1)
+            if mem > 1:
+                self.x_hist = torch.cat([self.x_hist[:, 1:], torch.Tensor(np.random.poisson(x.numpy()).astype(np.float))], 1)
+            else:
+                self.x_hist[:, 0] = torch.Tensor(np.random.poisson(x.numpy()))
 
             # calculate backprop angle at the end of the target phase
             calc_E_bp = record_backprop_angle and time == l_t_phase - 1
@@ -604,7 +646,7 @@ class Network:
             if use_rand_plateau_times:
                 # calculate plateau potentials & perform weight updates
                 for m in xrange(self.M-2, -1, -1):
-                    plateau_indices = np.nonzero(time == self.plateau_times_t[m][training_num])
+                    plateau_indices = torch.Tensor(np.nonzero(time == self.plateau_times_t[m][training_num]))
 
                     self.l[m].plateau_t(plateau_indices=plateau_indices)
 
@@ -618,7 +660,7 @@ class Network:
 
         if not use_rand_plateau_times:
             for m in xrange(self.M-2, -1, -1):
-                plateau_indices = np.arange(self.n[m])
+                plateau_indices = torch.LongTensor(np.arange(self.n[m]))
 
                 # calculate plateau potentials for hidden layer neurons
                 self.l[m].plateau_t(plateau_indices=plateau_indices)
@@ -635,7 +677,7 @@ class Network:
             self.l[m].update_W()
 
         if record_loss:
-            self.loss = ((self.l[-1].average_lambda_C_t - lambda_max*sigma(self.l[-1].average_C_f)) ** 2).mean()
+            self.loss = ((self.l[-1].average_lambda_C_t - lambda_max*torch.sigmoid(self.l[-1].average_C_f)) ** 2).mean()
 
         for m in xrange(self.M-1, -1, -1):
             # reset averages
@@ -982,7 +1024,7 @@ class Network:
             print("Start of epoch {}.\n".format(self.current_epoch + 1))
 
         # initialize input spike history
-        self.x_hist   = np.zeros((self.n_in, mem))
+        self.x_hist   = torch.ones(self.n_in, mem)*0
 
         # start time used for timing how long each 1000 examples take
         start_time = None
@@ -998,9 +1040,14 @@ class Network:
         if record_training_error:
             num_correct = 0
 
+        self.t = torch.ones(10, 1)*0
+
         for k in xrange(n_epochs):
             # shuffle the training data
-            self.x_train, self.t_train = shuffle_arrays(self.x_train, self.t_train)
+            # self.x_train, self.t_train = shuffle_arrays(self.x_train, self.t_train)
+
+            # x_train = torch.Tensor(self.x_train)
+            # t_train = torch.Tensor(self.t_train)
 
             # generate arrays of forward phase plateau potential times (time until plateau potential from start of forward phase) for individual neurons
             if use_rand_plateau_times:
@@ -1039,8 +1086,10 @@ class Network:
                     sys.stdout.flush()
 
                 # get training example data
-                self.x = lambda_max*self.x_train[:, n][:, np.newaxis]
-                self.t = self.t_train[:, n][:, np.newaxis]
+                self.x, label = next(iter(train_loader))
+                self.t *= 0
+                self.t[label] = 1
+                self.x = lambda_max*self.x.view(784, 1)
 
                 if record_voltages:
                     # initialize voltage arrays
@@ -1052,7 +1101,7 @@ class Network:
                 self.f_phase(self.x, None, n, training=True)
 
                 if record_training_error:
-                    sel_num = np.argmax(np.mean(self.l[-1].average_C_f.reshape(-1, self.n_neurons_per_category), axis=-1))
+                    sel_num = np.argmax(np.mean(self.l[-1].average_C_f.numpy().reshape(-1, self.n_neurons_per_category), axis=-1))
 
                     # get the target number from testing example data
                     target_num = np.dot(np.arange(10), self.t)
@@ -1061,13 +1110,13 @@ class Network:
                     if sel_num == target_num:
                         num_correct += 1
 
-                self.t_phase(self.x, self.t.repeat(self.n_neurons_per_category, axis=0), n)
+                self.t_phase(self.x, self.t.repeat(self.n_neurons_per_category, 0), n)
 
                 if record_loss:
                     self.losses[k*n_training_examples + n] = self.loss
 
                 if record_training_labels:
-                    self.training_labels[k*n_training_examples + n] = np.dot(np.arange(10), self.t)
+                    self.training_labels[k*n_training_examples + n] = np.dot(np.arange(10), self.t.numpy())
 
                 if record_eigvals:
                     # get max eigenvalues for jacobians
@@ -1324,7 +1373,7 @@ class Network:
         num_correct = 0
 
         # shuffle testing data
-        self.x_test, self.t_test = shuffle_arrays(self.x_test, self.t_test)
+        # self.x_test, self.t_test = shuffle_arrays(self.x_test, self.t_test)
 
         digits = np.arange(10)
 
@@ -1341,15 +1390,20 @@ class Network:
             self.x_hist *= 0
 
             # get testing example data
-            self.x = lambda_max*self.x_test[:, n][:, np.newaxis]
-            self.t = self.t_test[:, n][:, np.newaxis]
+            self.x = torch.Tensor(lambda_max*self.x_test[:, n][:, np.newaxis])
+            self.t = torch.Tensor(self.t_test[:, n][:, np.newaxis])
+
+            self.x, label = next(iter(test_loader))
+            self.t *= 0
+            self.t[label] = 1
+            self.x = lambda_max*self.x.view(784, 1)
 
             # do a forward phase & get the unit with maximum average somatic potential
-            self.f_phase(self.x, self.t.repeat(self.n_neurons_per_category, axis=0), None, training=False)
-            sel_num = np.argmax(np.mean(self.l[-1].average_C_f.reshape(-1, self.n_neurons_per_category), axis=-1))
+            self.f_phase(self.x, self.t.repeat(self.n_neurons_per_category, 0), None, training=False)
+            sel_num = np.argmax(np.mean(self.l[-1].average_C_f.numpy().reshape(-1, self.n_neurons_per_category), axis=-1))
 
             # get the target number from testing example data
-            target_num = np.dot(digits, self.t)
+            target_num = np.dot(digits, self.t.numpy())
 
             # increment correct classification counter if they match
             if sel_num == target_num:
@@ -1449,7 +1503,11 @@ class Layer:
         Generate Poisson spikes based on the firing rates of the neurons.
         '''
 
-        self.S_hist = np.concatenate([self.S_hist[:, 1:], np.random.poisson(self.lambda_C)], axis=-1)
+        # self.S_hist = np.concatenate([self.S_hist[:, 1:], np.random.poisson(self.lambda_C)], axis=-1)
+        if mem > 1:
+            self.S_hist = torch.cat([self.S_hist[:, 1:], torch.Tensor(np.random.poisson(self.lambda_C.numpy()).astype(np.float))], 1)
+        else:
+            self.S_hist = torch.Tensor(np.random.poisson(self.lambda_C.numpy()))
 
 class hiddenLayer(Layer):
     def __init__(self, net, m, f_input_size, b_input_size):
@@ -1469,29 +1527,29 @@ class hiddenLayer(Layer):
         self.f_input_size = f_input_size
         self.b_input_size = b_input_size
 
-        self.A             = np.zeros((self.size, 1))
-        self.B             = np.zeros((self.size, 1))
-        self.C             = np.zeros((self.size, 1))
-        self.lambda_C      = np.zeros((self.size, 1))
+        self.A             = torch.Tensor(np.zeros((self.size, 1)))
+        self.B             = torch.Tensor(np.zeros((self.size, 1)))
+        self.C             = torch.Tensor(np.zeros((self.size, 1)))
+        self.lambda_C      = torch.Tensor(np.zeros((self.size, 1)))
 
-        self.S_hist        = np.zeros((self.size, mem), dtype=np.int8)
+        self.S_hist        = torch.Tensor(np.zeros((self.size, mem)))
 
-        self.E       = np.zeros((self.size, 1))
-        self.delta_W = np.zeros(self.net.W[self.m].shape)
-        self.delta_Y = np.zeros(self.net.Y[self.m].shape)
-        self.delta_b = np.zeros((self.size, 1))
+        self.E       = torch.Tensor(np.zeros((self.size, 1)))
+        self.delta_W = torch.Tensor(np.zeros(self.net.W[self.m].size()))
+        self.delta_Y = torch.Tensor(np.zeros(self.net.Y[self.m].size()))
+        self.delta_b = torch.Tensor(np.zeros((self.size, 1)))
 
-        self.average_C_f        = np.zeros((self.size, 1))
-        self.average_C_t        = np.zeros((self.size, 1))
-        self.average_A_f        = np.zeros((self.size, 1))
-        self.average_A_t        = np.zeros((self.size, 1))
-        self.average_lambda_C_f = np.zeros((self.size, 1))
-        self.average_PSP_B_f    = np.zeros((self.f_input_size, 1))
+        self.average_C_f        = torch.Tensor(np.zeros((self.size, 1)))
+        self.average_C_t        = torch.Tensor(np.zeros((self.size, 1)))
+        self.average_A_f        = torch.Tensor(np.zeros((self.size, 1)))
+        self.average_A_t        = torch.Tensor(np.zeros((self.size, 1)))
+        self.average_lambda_C_f = torch.Tensor(np.zeros((self.size, 1)))
+        self.average_PSP_B_f    = torch.Tensor(np.zeros((self.f_input_size, 1)))
         if update_feedback_weights:
-            self.average_PSP_A_f = np.zeros((self.b_input_size, 1))
+            self.average_PSP_A_f = torch.Tensor(np.zeros((self.b_input_size, 1)))
         
-        self.alpha_f            = np.zeros((self.size, 1))
-        self.alpha_t            = np.zeros((self.size, 1))
+        self.alpha_f            = torch.Tensor(np.zeros((self.size, 1)))
+        self.alpha_t            = torch.Tensor(np.zeros((self.size, 1)))
 
         # set integration counter
         self.integration_counter = 0
@@ -1500,11 +1558,11 @@ class hiddenLayer(Layer):
         self.create_integration_vars()
 
     def create_integration_vars(self):
-        self.A_hist        = np.zeros((self.size, integration_time))
-        self.PSP_A_hist    = np.zeros((self.b_input_size, integration_time))
-        self.PSP_B_hist    = np.zeros((self.f_input_size, integration_time))
-        self.C_hist        = np.zeros((self.size, integration_time))
-        self.lambda_C_hist = np.zeros((self.size, integration_time))
+        self.A_hist        = torch.Tensor(np.zeros((self.size, integration_time)))
+        self.PSP_A_hist    = torch.Tensor(np.zeros((self.b_input_size, integration_time)))
+        self.PSP_B_hist    = torch.Tensor(np.zeros((self.f_input_size, integration_time)))
+        self.C_hist        = torch.Tensor(np.zeros((self.size, integration_time)))
+        self.lambda_C_hist = torch.Tensor(np.zeros((self.size, integration_time)))
 
     def clear_vars(self):
         '''
@@ -1548,18 +1606,18 @@ class hiddenLayer(Layer):
         '''
 
         if not use_backprop:
-            self.E = (self.alpha_t - self.alpha_f)*-k_B*lambda_max*deriv_sigma(self.average_C_f)
+            self.E = (self.alpha_t - self.alpha_f)*-k_B*lambda_max*torch.sigmoid(self.average_C_f)*(1.0 - torch.sigmoid(self.average_C_f))
 
             if record_backprop_angle and not use_backprop and calc_E_bp:
-                self.E_bp = (np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*lambda_max*deriv_sigma(self.average_C_f))
+                self.E_bp = self.net.W[self.m+1].t().mm(self.net.l[self.m+1].E_bp)*k_B*lambda_max*torch.sigmoid(self.average_C_f)*(1.0 - torch.sigmoid(self.average_C_f))
         else:
-            self.E_bp = (np.dot(self.net.W[self.m+1].T, self.net.l[self.m+1].E_bp)*k_B*lambda_max*deriv_sigma(self.average_C_f))
+            self.E_bp = self.net.W[self.m+1].t().mm(self.net.l[self.m+1].E_bp)*k_B*lambda_max*torch.sigmoid(self.average_C_f)*(1.0 - torch.sigmoid(self.average_C_f))
             self.E    = self.E_bp
 
         if record_backprop_angle and (not use_backprop) and calc_E_bp:
             self.delta_b_bp = self.E_bp
 
-        self.delta_W        = np.dot(self.E, self.average_PSP_B_f.T)
+        self.delta_W        = self.E.mm(self.average_PSP_B_f.t())
         self.net.W[self.m] += -self.net.f_etas[self.m]*P_hidden*self.delta_W
 
         self.delta_b        = self.E
@@ -1570,9 +1628,9 @@ class hiddenLayer(Layer):
         Update feedback weights.
         '''
 
-        E_inv = (lambda_max*sigma(self.average_C_f) - self.alpha_f)*-deriv_sigma(self.average_A_f)
+        E_inv = (lambda_max*torch.sigmoid(self.average_C_f) - self.alpha_f)*-self.alpha_f*(1.0 - self.alpha_f)
 
-        self.delta_Y        = np.dot(E_inv, self.average_PSP_A_f.T)
+        self.delta_Y        = E_inv.mm(self.average_PSP_A_f.t())
         self.net.Y[self.m] += -self.net.b_etas[self.m]*self.delta_Y
 
         if use_feedback_bias:
@@ -1588,16 +1646,17 @@ class hiddenLayer(Layer):
         '''
 
         if use_spiking_feedback:
-            self.PSP_A = np.dot(b_input, kappas)
+            self.PSP_A = b_input.mm(kappas)
         else:
             self.PSP_A = b_input
 
         self.PSP_A_hist[:, self.integration_counter % integration_time] = self.PSP_A[:, 0]
 
         if use_feedback_bias:
-            self.A = np.dot(self.net.Y[self.m], self.PSP_A) + self.net.c[self.m]
+            self.A = self.net.Y[self.m].mm(self.PSP_A) + self.net.c[self.m]
         else:
-            self.A = np.dot(self.net.Y[self.m], self.PSP_A)
+            self.A = self.net.Y[self.m].mm(self.PSP_A)
+
         self.A_hist[:, self.integration_counter % integration_time] = self.A[:, 0]
 
     def update_B(self, f_input):
@@ -1609,13 +1668,13 @@ class hiddenLayer(Layer):
         '''
 
         if use_spiking_feedforward:
-            self.PSP_B = np.dot(f_input, kappas)
+            self.PSP_B = f_input.mm(kappas)
         else:
             self.PSP_B = f_input
 
         self.PSP_B_hist[:, self.integration_counter % integration_time] = self.PSP_B[:, 0]
 
-        self.B = np.dot(self.net.W[self.m], self.PSP_B) + self.net.b[self.m]
+        self.B = self.net.W[self.m].mm(self.PSP_B) + self.net.b[self.m]
 
     def update_C(self):
         '''
@@ -1633,7 +1692,7 @@ class hiddenLayer(Layer):
 
         self.C_hist[:, self.integration_counter % integration_time] = self.C[:, 0]
 
-        self.lambda_C = lambda_max*sigma(self.C)
+        self.lambda_C = lambda_max*torch.sigmoid(self.C)
         self.lambda_C_hist[:, self.integration_counter % integration_time] = self.lambda_C[:, 0]
 
     def out_f(self, f_input, b_input):
@@ -1677,10 +1736,10 @@ class hiddenLayer(Layer):
         '''
 
         # calculate average apical potentials for neurons undergoing plateau potentials
-        self.average_A_f[plateau_indices] = np.mean(self.A_hist[plateau_indices], axis=-1)[:, np.newaxis]
+        self.average_A_f[plateau_indices] = torch.mean(self.A_hist[plateau_indices], 1)
 
         # calculate apical calcium spike nonlinearity
-        self.alpha_f[plateau_indices] = sigma(self.average_A_f[plateau_indices])
+        self.alpha_f[plateau_indices] = torch.sigmoid(self.average_A_f[plateau_indices])
 
     def plateau_t(self, plateau_indices):
         '''
@@ -1691,10 +1750,10 @@ class hiddenLayer(Layer):
         '''
 
         # calculate average apical potentials for neurons undergoing plateau potentials
-        self.average_A_t[plateau_indices] = np.mean(self.A_hist[plateau_indices], axis=-1)[:, np.newaxis]
+        self.average_A_t[plateau_indices] = torch.mean(self.A_hist[plateau_indices], 1)
 
         # calculate apical calcium spike nonlinearity
-        self.alpha_t[plateau_indices] = sigma(self.average_A_t[plateau_indices])
+        self.alpha_t[plateau_indices] = torch.sigmoid(self.average_A_t[plateau_indices])
 
     def calc_averages(self, phase):
         '''
@@ -1706,18 +1765,18 @@ class hiddenLayer(Layer):
         '''
 
         if phase == "forward":
-            self.average_C_f        = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
-            self.average_lambda_C_f = np.mean(self.lambda_C_hist, axis=-1)[:, np.newaxis]
-            self.average_PSP_B_f    = np.mean(self.PSP_B_hist, axis=-1)[:, np.newaxis]
+            self.average_C_f        = torch.mean(self.C_hist, 1)
+            self.average_lambda_C_f = torch.mean(self.lambda_C_hist, 1)
+            self.average_PSP_B_f    = torch.mean(self.PSP_B_hist, 1)
 
             if update_feedback_weights:
-                self.average_PSP_A_f = np.mean(self.PSP_A_hist, axis=-1)[:, np.newaxis]
+                self.average_PSP_A_f = torch.mean(self.PSP_A_hist, 1)
         elif phase == "target":
-            self.average_C_t        = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
-            self.average_lambda_C_t = np.mean(self.lambda_C_hist, axis=-1)[:, np.newaxis]
+            self.average_C_t        = torch.mean(self.C_hist, 1)
+            self.average_lambda_C_t = torch.mean(self.lambda_C_hist, 1)
 
             if update_feedback_weights:
-                self.average_PSP_A_t = np.mean(self.PSP_A_hist, axis=-1)[:, np.newaxis]
+                self.average_PSP_A_t = torch.mean(self.PSP_A_hist, 1)
 
 """
 NOTE: In the paper, we denote the output layer's somatic & dendritic potentials
@@ -1739,22 +1798,22 @@ class finalLayer(Layer):
 
         self.f_input_size = f_input_size
 
-        self.B             = np.zeros((self.size, 1))
-        self.I             = np.zeros((self.size, 1))
-        self.C             = np.zeros((self.size, 1))
-        self.lambda_C      = np.zeros((self.size, 1))
+        self.B             = torch.Tensor(np.zeros((self.size, 1)))
+        self.I             = torch.Tensor(np.zeros((self.size, 1)))
+        self.C             = torch.Tensor(np.zeros((self.size, 1)))
+        self.lambda_C      = torch.Tensor(np.zeros((self.size, 1)))
 
-        self.S_hist        = np.zeros((self.size, mem), dtype=np.int8)
+        self.S_hist        = torch.Tensor(np.zeros((self.size, mem)))
 
-        self.E       = np.zeros((self.size, 1))
-        self.delta_W = np.zeros(self.net.W[self.m].shape)
-        self.delta_b = np.zeros((self.size, 1))
+        self.E       = torch.Tensor(np.zeros((self.size, 1)))
+        self.delta_W = torch.Tensor(np.zeros(self.net.W[self.m].size()))
+        self.delta_b = torch.Tensor(np.zeros((self.size, 1)))
 
-        self.average_C_f        = np.zeros((self.size, 1))
-        self.average_C_t        = np.zeros((self.size, 1))
-        self.average_lambda_C_f = np.zeros((self.size, 1))
-        self.average_lambda_C_t = np.zeros((self.size, 1))
-        self.average_PSP_B_f    = np.zeros((self.f_input_size, 1))
+        self.average_C_f        = torch.Tensor(np.zeros((self.size, 1)))
+        self.average_C_t        = torch.Tensor(np.zeros((self.size, 1)))
+        self.average_lambda_C_f = torch.Tensor(np.zeros((self.size, 1)))
+        self.average_lambda_C_t = torch.Tensor(np.zeros((self.size, 1)))
+        self.average_PSP_B_f    = torch.Tensor(np.zeros((self.f_input_size, 1)))
 
         # set integration counter
         self.integration_counter = 0
@@ -1763,9 +1822,9 @@ class finalLayer(Layer):
         self.create_integration_vars()
 
     def create_integration_vars(self):
-        self.PSP_B_hist    = np.zeros((self.f_input_size, integration_time))
-        self.C_hist        = np.zeros((self.size, integration_time))
-        self.lambda_C_hist = np.zeros((self.size, integration_time))
+        self.PSP_B_hist    = torch.Tensor(np.zeros((self.f_input_size, integration_time)))
+        self.C_hist        = torch.Tensor(np.zeros((self.size, integration_time)))
+        self.lambda_C_hist = torch.Tensor(np.zeros((self.size, integration_time)))
 
     def clear_vars(self):
         '''
@@ -1799,12 +1858,13 @@ class finalLayer(Layer):
         Update feedforward weights.
         '''
 
-        self.E = (self.average_lambda_C_t - lambda_max*sigma(self.average_C_f))*-k_D*lambda_max*deriv_sigma(self.average_C_f)
+
+        self.E = (self.average_lambda_C_t - lambda_max*torch.sigmoid(self.average_C_f))*-k_D*lambda_max*torch.sigmoid(self.average_C_f)*(1.0 - torch.sigmoid(self.average_C_f))
 
         if use_backprop or (record_backprop_angle and calc_E_bp):
-            self.E_bp = (self.average_lambda_C_t - lambda_max*sigma(self.average_C_f))*-k_D*lambda_max*deriv_sigma(self.average_C_f)
+            self.E_bp = (self.average_lambda_C_t - lambda_max*torch.sigmoid(self.average_C_f))*-k_D*lambda_max*torch.sigmoid(self.average_C_f)*(1.0 - torch.sigmoid(self.average_C_f))
 
-        self.delta_W        = np.dot(self.E, self.average_PSP_B_f.T)
+        self.delta_W        = self.E.mm(self.average_PSP_B_f.t())
         self.net.W[self.m] += -self.net.f_etas[self.m]*P_final*self.delta_W
 
         self.delta_b        = self.E
@@ -1819,13 +1879,13 @@ class finalLayer(Layer):
         '''
 
         if use_spiking_feedforward:
-            self.PSP_B = np.dot(f_input, kappas)
+            self.PSP_B = f_input.mm(kappas)
         else:
             self.PSP_B = f_input
 
         self.PSP_B_hist[:, self.integration_counter % integration_time] = self.PSP_B[:, 0]
 
-        self.B = np.dot(self.net.W[self.m], self.PSP_B) + self.net.b[self.m]
+        self.B = self.net.W[self.m].mm(self.PSP_B) + self.net.b[self.m]
 
     def update_I(self, b_input=None):
         '''
@@ -1870,7 +1930,7 @@ class finalLayer(Layer):
 
         self.C_hist[:, self.integration_counter % integration_time] = self.C[:, 0]
 
-        self.lambda_C = lambda_max*sigma(self.C)
+        self.lambda_C = lambda_max*torch.sigmoid(self.C)
         self.lambda_C_hist[:, self.integration_counter % integration_time] = self.lambda_C[:, 0]
 
     def out_f(self, f_input, b_input):
@@ -1915,12 +1975,12 @@ class finalLayer(Layer):
         '''
 
         if phase == "forward":
-            self.average_C_f        = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
-            self.average_lambda_C_f = np.mean(self.lambda_C_hist, axis=-1)[:, np.newaxis]
-            self.average_PSP_B_f    = np.mean(self.PSP_B_hist, axis=-1)[:, np.newaxis]
+            self.average_C_f        = torch.mean(self.C_hist, 1)
+            self.average_lambda_C_f = torch.mean(self.lambda_C_hist, 1)
+            self.average_PSP_B_f    = torch.mean(self.PSP_B_hist, 1)
         elif phase == "target":
-            self.average_C_t        = np.mean(self.C_hist, axis=-1)[:, np.newaxis]
-            self.average_lambda_C_t = np.mean(self.lambda_C_hist, axis=-1)[:, np.newaxis]
+            self.average_C_t        = torch.mean(self.C_hist, 1)
+            self.average_lambda_C_t = torch.mean(self.lambda_C_hist, 1)
 
 # ---------------------------------------------------------------
 """                     Helper functions                      """
